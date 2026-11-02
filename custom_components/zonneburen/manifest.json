@@ -1,8 +1,8 @@
 {
   "domain": "zonneburen",
   "name": "Zonneburen",
-  "codeowners": ["@NiekSchouten"],
   "after_dependencies": ["recorder"],
+  "codeowners": ["@NiekSchouten"],
   "config_flow": true,
   "documentation": "https://github.com/NiekSchouten/zonneburen-homeassistant",
   "integration_type": "hub",
