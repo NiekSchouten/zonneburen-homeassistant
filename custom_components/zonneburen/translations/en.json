@@ -1,0 +1,69 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Zonneburen",
+        "description": "Create a pairing code under My hub in the web app and enter it here.",
+        "data": {
+          "server": "Web app address",
+          "code": "Pairing code"
+        }
+      },
+      "sensoren": {
+        "title": "Your sensors",
+        "description": "Connected as {adres}. Pick the sensors Home Assistant already has. Only the grid is required to take part.",
+        "data": {
+          "net": "Grid (positive = import)",
+          "net_omdraaien": "Invert the grid sign",
+          "zon": "Solar panels",
+          "batterij": "Battery (positive = discharging)",
+          "batterij_omdraaien": "Invert the battery sign",
+          "soc": "Battery state of charge",
+          "verbruik": "House consumption",
+          "wijk_automatisch": "Join automatically when the neighbourhood has a surplus",
+          "bediening": "Allow control from the web app"
+        }
+      }
+    },
+    "error": {
+      "code_onbekend": "This code is unknown or expired. Create a new one in the web app.",
+      "niet_toegestaan": "The server refuses this pairing.",
+      "te_vaak": "Too many attempts. Try again in fifteen minutes.",
+      "niet_bereikbaar": "The web app cannot be reached.",
+      "geen_https": "The address must start with https://."
+    },
+    "abort": {
+      "already_configured": "This house is already connected."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Your sensors",
+        "data": {
+          "net": "Grid (positive = import)",
+          "net_omdraaien": "Invert the grid sign",
+          "zon": "Solar panels",
+          "batterij": "Battery (positive = discharging)",
+          "batterij_omdraaien": "Invert the battery sign",
+          "soc": "Battery state of charge",
+          "verbruik": "House consumption",
+          "wijk_automatisch": "Join automatically when the neighbourhood has a surplus",
+          "bediening": "Allow control from the web app"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "verbonden": { "name": "Connected to Zonneburen" },
+      "wijkstroom": { "name": "Neighbourhood power active" },
+      "noodstop": { "name": "Emergency stop" }
+    },
+    "sensor": {
+      "wijk_overschot": { "name": "Neighbourhood surplus" },
+      "beursprijs": { "name": "Spot price" },
+      "gedeeld_week": { "name": "Shared this week" }
+    }
+  }
+}

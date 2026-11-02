@@ -1,0 +1,69 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Koppelen met Zonneburen",
+        "description": "Maak in de webapp bij Mijn hub een koppelcode aan en vul die hier in.",
+        "data": {
+          "server": "Adres van de webapp",
+          "code": "Koppelcode"
+        }
+      },
+      "sensoren": {
+        "title": "Jouw sensoren",
+        "description": "Gekoppeld met {adres}. Kies de sensoren die Home Assistant al heeft. Alleen het net is nodig om mee te doen.",
+        "data": {
+          "net": "Net (positief = afname)",
+          "net_omdraaien": "Teken van het net omdraaien",
+          "zon": "Zonnepanelen",
+          "batterij": "Batterij (positief = ontladen)",
+          "batterij_omdraaien": "Teken van de batterij omdraaien",
+          "soc": "Laadniveau van de batterij",
+          "verbruik": "Verbruik van het huis",
+          "wijk_automatisch": "Automatisch meedoen als de wijk stroom over heeft",
+          "bediening": "Bediening vanuit de webapp toestaan"
+        }
+      }
+    },
+    "error": {
+      "code_onbekend": "Deze code is onbekend of verlopen. Maak een nieuwe aan in de webapp.",
+      "niet_toegestaan": "De server weigert deze koppeling.",
+      "te_vaak": "Te veel pogingen. Probeer het over een kwartier opnieuw.",
+      "niet_bereikbaar": "De webapp is niet bereikbaar.",
+      "geen_https": "Het adres moet met https:// beginnen."
+    },
+    "abort": {
+      "already_configured": "Dit huis is al gekoppeld."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Jouw sensoren",
+        "data": {
+          "net": "Net (positief = afname)",
+          "net_omdraaien": "Teken van het net omdraaien",
+          "zon": "Zonnepanelen",
+          "batterij": "Batterij (positief = ontladen)",
+          "batterij_omdraaien": "Teken van de batterij omdraaien",
+          "soc": "Laadniveau van de batterij",
+          "verbruik": "Verbruik van het huis",
+          "wijk_automatisch": "Automatisch meedoen als de wijk stroom over heeft",
+          "bediening": "Bediening vanuit de webapp toestaan"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "verbonden": { "name": "Verbonden met Zonneburen" },
+      "wijkstroom": { "name": "Wijkstroom actief" },
+      "noodstop": { "name": "Noodstop" }
+    },
+    "sensor": {
+      "wijk_overschot": { "name": "Overschot in de wijk" },
+      "beursprijs": { "name": "Beursprijs" },
+      "gedeeld_week": { "name": "Gedeeld deze week" }
+    }
+  }
+}
