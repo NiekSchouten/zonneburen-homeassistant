@@ -112,6 +112,17 @@ def lees_commando(payload: bytes | str, adres: str) -> tuple[str, bool] | None:
     return commando, vraag if isinstance(vraag, bool) else True
 
 
+def andere_hub(payload: bytes | str, adres: str, eigen_hub_id: str) -> str | None:
+    """Het hub_id van een andere zender op ons adres, of None. Zonder hub_id is het een oude blueprint."""
+    bericht = lees_json(payload)
+    if not bericht or not zelfde_adres(bericht.get("hardware_token"), adres):
+        return None
+    hub_id = bericht.get("hub_id")
+    if hub_id == eigen_hub_id:
+        return None
+    return hub_id if isinstance(hub_id, str) and hub_id else "blueprint"
+
+
 def lees_weekrapport(payload: bytes | str, adres: str) -> dict | None:
     bericht = lees_json(payload)
     if not bericht or not zelfde_adres(bericht.get("adres"), adres):

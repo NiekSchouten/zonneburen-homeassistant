@@ -103,6 +103,19 @@ async def test_instellingen_uit_de_webapp(hass, hub):
     assert not hub.verstuurd("hub/antwoord")[-1]["ok"]
 
 
+async def test_meldt_een_tweede_hub_op_hetzelfde_adres(hass, hub):
+    hub._stuur_telemetrie()
+    eigen = hub.verbinding.publiceer.call_args_list[-1].args[1]
+    hub._bij_bericht(protocol.huis_topic(ADRES, "telemetrie"), eigen.encode())
+    assert hub.andere_hub is None
+
+    hub._bij_bericht(protocol.huis_topic(ADRES, "telemetrie"),
+                     json.dumps({"hardware_token": ADRES, "hub_id": "a4cb8fd53618"}).encode())
+    await hass.async_block_till_done()
+    assert hub.andere_hub == "a4cb8fd53618"
+    assert "Zonneburen Link" in hub.logboek[0]["m"]
+
+
 async def test_zonder_bediening_alleen_lezen(hass, hub):
     hass.config_entries.async_update_entry(hub.entry, options={**hub.entry.options, "bediening": False})
     hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("modus", i=0, modus="on"))

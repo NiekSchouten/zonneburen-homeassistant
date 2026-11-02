@@ -43,6 +43,7 @@ INFO_S = 300
 VAK_S = 300                      # detail voor de grafiek in Inzichten
 MAX_VAKKEN = 48 * 3600 // VAK_S  # twee dagen, zoals de hub
 NET_WEG_S = 300
+ANDERE_HUB_S = 3600   # niet elke minuut opnieuw melden
 
 INFO, GOED, LET_OP, ALARM = 0, 1, 2, 3
 STANDEN = {"on": 1, "auto": 0, "off": -1}
@@ -91,6 +92,8 @@ class ZonneburenHub:
         self._volgende_info = 0.0
         self._net_weg_sinds: float | None = None
         self._net_weg_gemeld = False
+        self.andere_hub: str | None = None
+        self._andere_hub_op = 0.0
 
     # ------------------------------------------------------------------ Levensloop
 
@@ -258,6 +261,9 @@ class ZonneburenHub:
         if topic == protocol.huis_topic(self.adres, "hub/opdracht"):
             if opdracht := protocol.lees_opdracht(payload):
                 self.hass.async_create_task(self._opdracht(opdracht))
+        elif topic == protocol.huis_topic(self.adres, "telemetrie"):
+            if andere := protocol.andere_hub(payload, self.adres, self.hub_id):
+                self._zag_andere_hub(andere)
         elif topic == protocol.TOPIC_SCHAKELEN:
             if commando := protocol.lees_commando(payload, self.adres):
                 self.hass.async_create_task(self._wijk_commando(*commando))
@@ -277,6 +283,18 @@ class ZonneburenHub:
         elif topic == protocol.TOPIC_PRIJZEN:
             self.prijzen = protocol.lees_json(payload)
             self._bijgewerkt()
+
+    def _zag_andere_hub(self, hub_id: str) -> None:
+        nu = time.time()
+        self.andere_hub = hub_id
+        if nu - self._andere_hub_op < ANDERE_HUB_S:
+            return
+        self._andere_hub_op = nu
+        naam = "de Zonneburen Link" if not hub_id.startswith("ha-") and hub_id != "blueprint" else             "de Zonneburen-blueprint" if hub_id == "blueprint" else "een andere Home Assistant"
+        tekst = f"Er stuurt nog een hub op dit adres: {naam}. De wijk gebruikt er maar één; zet de andere uit."
+        self._log(ALARM, tekst)
+        persistent_notification.async_create(self.hass, tekst, title="Zonneburen", notification_id=f"{DOMAIN}_andere_hub")
+        self._bijgewerkt()
 
     async def _zet_noodstop(self, actief: bool) -> None:
         if actief != self.noodstop:

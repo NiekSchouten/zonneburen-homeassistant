@@ -34,6 +34,8 @@ class Verbinding:
     def abonnementen(self) -> list[tuple[str, int]]:
         return [
             (protocol.huis_topic(self.adres, "hub/opdracht"), 1),
+            # Om een tweede hub op dit adres te zien: de wijk telt er maar één.
+            (protocol.huis_topic(self.adres, "telemetrie"), 0),
             (protocol.TOPIC_SCHAKELEN, 1),
             (protocol.TOPIC_NOODSTOP, 1),
             (protocol.TOPIC_WEEKRAPPORT, 0),

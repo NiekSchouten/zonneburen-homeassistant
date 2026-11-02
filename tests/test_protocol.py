@@ -112,6 +112,14 @@ def test_dagtotalen_tellen_kwh_en_slaan_gaten_over():
     assert d.als_json(30)["days"][0]["date"] == 20261102
 
 
+def test_andere_hub_op_hetzelfde_adres():
+    esp = json.dumps({"hardware_token": ADRES, "hub_id": "a4cb8fd53618"})
+    assert p.andere_hub(esp, ADRES, "ha-0123456789abcdef") == "a4cb8fd53618"
+    assert p.andere_hub(esp, ADRES, "a4cb8fd53618") is None
+    assert p.andere_hub(json.dumps({"hardware_token": ADRES}), ADRES, "ha-x") == "blueprint"
+    assert p.andere_hub(json.dumps({"hardware_token": "Ander huis", "hub_id": "x"}), ADRES, "ha-x") is None
+
+
 def test_apparaat_id_is_herkenbaar_en_vast():
     assert p.apparaat_id("abc") == p.apparaat_id("abc")
     assert p.apparaat_id("abc").startswith("ha-") and len(p.apparaat_id("abc")) == 19

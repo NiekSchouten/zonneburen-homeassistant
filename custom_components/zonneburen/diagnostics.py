@@ -19,5 +19,6 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: Zonnebu
         "wijk_actief": hub.wijk_actief,
         "noodstop": hub.noodstop,
         "standen": hub.standen,
+        "andere_hub": hub.andere_hub,
         "logboek": list(hub.logboek)[:50],
     }
