@@ -120,6 +120,26 @@ def test_andere_hub_op_hetzelfde_adres():
     assert p.andere_hub(json.dumps({"hardware_token": "Ander huis", "hub_id": "x"}), ADRES, "ha-x") is None
 
 
+def test_dagen_uit_uurgemiddelden():
+    uren = [(0.0, {"net": -1000, "pv": 3000}), (3600.0, {"net": 500, "pv": 0, "bat": 200}), (90000.0, {"pv": 1000})]
+    dagen = p.uren_naar_dagen(uren, lambda t: "20261101" if t < 86400 else "20261102")
+    assert dagen["20261101"] == {"pv": 3.0, "load": 2.7, "imp": 0.5, "exp": 1.0, "chg": 0.0, "dis": 0.2}
+    assert dagen["20261102"]["pv"] == 1.0 and dagen["20261102"]["load"] == 0.0
+
+
+def test_aanvullen_houdt_per_veld_het_hoogste():
+    d = p.Dagtotalen()
+    d.dagen["20261102"] = {"pv": 1.5, "load": 0.2, "imp": 0, "exp": 0, "chg": 0, "dis": 0}
+    d.vul_aan({"20261102": {"pv": 1.0, "load": 4.0}, "20261101": {"pv": 9.0}})
+    assert d.dagen["20261102"]["pv"] == 1.5 and d.dagen["20261102"]["load"] == 4.0
+    assert d.dagen["20261101"]["pv"] == 9.0
+
+
+def test_vakken_uit_vijf_minuten():
+    vakken = p.vijf_minuten_naar_vakken([(600.0, {"net": 100.4, "pv": 900})])
+    assert vakken == [{"t": 900, "pv": 900, "load": 1000, "grid": 100, "bat": None, "soc": None, "price": None}]
+
+
 def test_apparaat_id_is_herkenbaar_en_vast():
     assert p.apparaat_id("abc") == p.apparaat_id("abc")
     assert p.apparaat_id("abc").startswith("ha-") and len(p.apparaat_id("abc")) == 19

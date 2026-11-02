@@ -117,6 +117,20 @@ async def test_meldt_een_tweede_hub_op_hetzelfde_adres(hass, hub):
     assert "Zonneburen Link" in hub.logboek[0]["m"]
 
 
+async def test_historie_uit_home_assistant(hass, hub):
+    nu = time.time()
+    uren = [(nu - 86400 * 3, {"net": 400, "pv": 2000})]
+    vijf = [(nu - 3600, {"net": -800, "pv": 1500})]
+    with patch("custom_components.zonneburen.hub.historie.lees", side_effect=[uren, vijf]):
+        await hub.vul_historie_aan()
+    assert max(d["pv"] for d in hub.dagen.dagen.values()) == 2.0
+    assert hub.vakken[0]["grid"] == -800 and hub.vakken[0]["load"] == 700
+
+    hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("gegevens", soort="uren", n=48))
+    await hass.async_block_till_done()
+    assert hub.verstuurd("hub/antwoord")[-1]["data"]["pv"][0] == 1500
+
+
 async def test_zonder_bediening_alleen_lezen(hass, hub):
     hass.config_entries.async_update_entry(hub.entry, options={**hub.entry.options, "bediening": False})
     hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("modus", i=0, modus="on"))

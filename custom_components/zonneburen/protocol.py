@@ -231,6 +231,45 @@ class MinuutGemiddelde:
 VELDEN = ("pv", "load", "imp", "exp", "chg", "dis")
 
 
+def _met_verbruik(w: dict[str, float]) -> dict[str, float]:
+    """Zonder eigen verbruikssensor volgt het verbruik uit de energiebalans."""
+    if w.get("load") is None and w.get("net") is not None:
+        w = {**w, "load": max(w["net"] + (w.get("pv") or 0) + (w.get("bat") or 0), 0)}
+    return w
+
+
+def uren_naar_dagen(uren: list[tuple[float, dict[str, float]]], dag_van) -> dict[str, dict[str, float]]:
+    """kWh per dag uit gemiddelde vermogens per uur, uit de statistieken van Home Assistant.
+
+    Afname en teruglevering worden per uur gesplitst: wisselt het net binnen een uur van richting,
+    dan valt een klein deel weg. Meer laten uurgemiddelden niet toe.
+    """
+    dagen: dict[str, dict[str, float]] = {}
+    for start, gemiddeld in uren:
+        w = _met_verbruik(gemiddeld)
+        totaal = dagen.setdefault(dag_van(start), dict.fromkeys(VELDEN, 0.0))
+        net, bat = w.get("net"), w.get("bat")
+        for veld, watt in (("pv", w.get("pv")), ("load", w.get("load")), ("imp", net), ("exp", -net if net is not None else None),
+                           ("chg", -bat if bat is not None else None), ("dis", bat)):
+            if watt is not None and watt > 0:
+                totaal[veld] += watt / 1000
+    return dagen
+
+
+def vijf_minuten_naar_vakken(rijen: list[tuple[float, dict[str, float]]]) -> list[dict]:
+    """Zelfde vorm als de eigen vakken: het tijdstip is het einde van het vak."""
+    vakken = []
+    for start, gemiddeld in rijen:
+        w = _met_verbruik(gemiddeld)
+        vakken.append({"t": int(start) + 300, "pv": _heel(w.get("pv")), "load": _heel(w.get("load")), "grid": _heel(w.get("net")),
+                       "bat": _heel(w.get("bat")), "soc": _heel(w.get("soc")), "price": None})
+    return vakken
+
+
+def _heel(waarde: float | None) -> int | None:
+    return None if waarde is None else round(waarde)
+
+
 @dataclass
 class Dagtotalen:
     """kWh per dag uit vermogens, zoals de historie van de hub (400 dagen)."""
@@ -251,6 +290,15 @@ class Dagtotalen:
                            ("chg", -bat if bat is not None else None), ("dis", bat)):
             if watt is not None and watt > 0:
                 totaal[veld] += watt * uur / 1000
+        while len(self.dagen) > self.MAX_DAGEN:
+            del self.dagen[min(self.dagen)]
+
+    def vul_aan(self, dagen: dict[str, dict[str, float]]) -> None:
+        """Per veld het hoogste: de eigen telling van vandaag is nog niet af, de recorder loopt een uur achter."""
+        for sleutel, waarden in dagen.items():
+            totaal = self.dagen.setdefault(sleutel, dict.fromkeys(VELDEN, 0.0))
+            for veld in VELDEN:
+                totaal[veld] = max(totaal[veld], waarden.get(veld, 0.0))
         while len(self.dagen) > self.MAX_DAGEN:
             del self.dagen[min(self.dagen)]
 

@@ -1,7 +1,7 @@
 """Vaste waarden van de Zonneburen-integratie."""
 
 DOMAIN = "zonneburen"
-VERSIE = "0.1.1"
+VERSIE = "0.2.0"
 
 # De webapp herkent hieraan een software-hub: geen firmware, bijwerken gaat via HACS.
 FIRMWARE = f"ha-{VERSIE}"

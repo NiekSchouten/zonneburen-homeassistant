@@ -20,10 +20,11 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from . import protocol
+from . import historie, protocol
 from .const import (
     CONF_ADRES, CONF_APPARAAT_ID, CONF_APPARATEN, CONF_BATTERIJ, CONF_BATTERIJ_OM, CONF_BEDIENING, CONF_NAAM,
     CONF_NET, CONF_NET_OM, CONF_OVERIG, CONF_SOC, CONF_VERBRUIK, CONF_WIJK_AUTOMATISCH, CONF_ZON, DOMAIN, FIRMWARE,
@@ -43,6 +44,7 @@ INFO_S = 300
 VAK_S = 300                      # detail voor de grafiek in Inzichten
 MAX_VAKKEN = 48 * 3600 // VAK_S  # twee dagen, zoals de hub
 NET_WEG_S = 300
+HISTORIE_DAGEN = 60   # zoveel vraagt de webapp hooguit op
 ANDERE_HUB_S = 3600   # niet elke minuut opnieuw melden
 
 INFO, GOED, LET_OP, ALARM = 0, 1, 2, 3
@@ -111,6 +113,32 @@ class ZonneburenHub:
         self.verbinding.start()
         for interval, actie in ((TIK, self._tik), (MINUUT, self._stuur_telemetrie), (BEWAREN, self._bewaar)):
             self.entry.async_on_unload(async_track_time_interval(self.hass, actie, interval))
+        # Pas als Home Assistant klaar is met opstarten: dan staan de statistieken van de recorder klaar.
+        self.entry.async_on_unload(async_at_started(self.hass, self._start_historie))
+
+    @callback
+    def _start_historie(self, _hass=None) -> None:
+        self.entry.async_create_background_task(self.hass, self.vul_historie_aan(), "zonneburen historie")
+
+    async def vul_historie_aan(self) -> None:
+        nu = dt_util.utcnow()
+        try:
+            uren = await historie.lees(self.hass, dict(self.opties), nu - timedelta(days=HISTORIE_DAGEN), nu, "hour")
+            vijf = await historie.lees(self.hass, dict(self.opties), nu - timedelta(hours=48), nu, "5minute")
+        except Exception as fout:  # noqa: BLE001 - zonder historie werkt de hub gewoon door
+            self._log(LET_OP, f"Historie uit Home Assistant niet gelezen ({fout})")
+            return
+
+        dagen = protocol.uren_naar_dagen(uren, lambda t: dt_util.as_local(dt_util.utc_from_timestamp(t)).strftime("%Y%m%d"))
+        self.dagen.vul_aan(dagen)
+        eerste_eigen = self.vakken[0]["t"] if self.vakken else float("inf")
+        ouder = [v for v in protocol.vijf_minuten_naar_vakken(vijf) if v["t"] < eerste_eigen]
+        self.vakken = deque(ouder + list(self.vakken), maxlen=MAX_VAKKEN)
+        if dagen or ouder:
+            self._log(GOED, f"Historie uit Home Assistant: {len(dagen)} dagen en {len(ouder)} vakken van vijf minuten")
+        else:
+            self._log(LET_OP, "Geen historie gevonden: hebben je sensoren een state_class?")
+        self._bijgewerkt()
 
     async def async_stop(self) -> None:
         await self._async_bewaar()
