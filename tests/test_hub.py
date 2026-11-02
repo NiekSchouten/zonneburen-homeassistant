@@ -104,6 +104,7 @@ async def test_instellingen_uit_de_webapp(hass, hub):
 
 
 async def test_meldt_een_tweede_hub_op_hetzelfde_adres(hass, hub):
+    hub._tik()
     hub._stuur_telemetrie()
     eigen = hub.verbinding.publiceer.call_args_list[-1].args[1]
     hub._bij_bericht(protocol.huis_topic(ADRES, "telemetrie"), eigen.encode())
