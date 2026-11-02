@@ -1,6 +1,6 @@
 # Zonneburen voor Home Assistant
 
-Maak van je Home Assistant de hub van je huis in de energiewijk Zonneburen Zwaagdijk-Oost. Je hebt
+Maak van je Home Assistant de hub van je huis in de energiewijk Zonneburen. Je hebt
 dan geen Zonneburen Link nodig: Home Assistant doet hetzelfde, met alles wat het al van je huis weet.
 
 ## Wat het doet
