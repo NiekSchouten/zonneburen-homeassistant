@@ -50,20 +50,74 @@
           "verbruik": "Verbruik van het huis",
           "wijk_automatisch": "Automatisch meedoen als de wijk stroom over heeft",
           "bediening": "Bediening vanuit de webapp toestaan"
+        },
+        "sections": {
+          "energieplan": {
+            "name": "Energieplan",
+            "description": "Laat Home Assistant het plan uit de webapp uitvoeren. Kies de entiteit van je batterij-integratie waarmee het vermogen wordt ingesteld.",
+            "data": {
+              "ems_aan": "Energieplan uitvoeren",
+              "ems_vermogen": "Entiteit die het batterijvermogen instelt (W)",
+              "ems_netdoel": "Deze entiteit is een netdoel (zoals het grid setpoint van een Victron ESS)",
+              "ems_laden_positief": "Bij deze entiteit betekent een positief getal laden",
+              "ems_modus": "Entiteit voor de stand van de batterij (optioneel)",
+              "ems_modus_sturen": "Stand om extern te sturen",
+              "ems_modus_terug": "Stand om terug te zetten",
+              "ems_max_laad_w": "Laden hooguit (W)",
+              "ems_max_ontlaad_w": "Ontladen hooguit (W)",
+              "ems_zekering_a": "Hoofdzekering (A)"
+            },
+            "data_description": {
+              "ems_vermogen": "Positief is ontladen, tenzij je het hieronder omdraait.",
+              "ems_modus_sturen": "Bijvoorbeeld de optie die de batterij op extern sturen zet. Leeg laten als dat niet nodig is.",
+              "ems_max_laad_w": "Leeg of 0: het maximum uit het plan."
+            }
+          }
         }
       }
     }
   },
   "entity": {
     "binary_sensor": {
-      "verbonden": { "name": "Verbonden met Zonneburen" },
-      "wijkstroom": { "name": "Wijkstroom actief" },
-      "noodstop": { "name": "Noodstop" }
+      "verbonden": {
+        "name": "Verbonden met Zonneburen"
+      },
+      "wijkstroom": {
+        "name": "Wijkstroom actief"
+      },
+      "noodstop": {
+        "name": "Noodstop"
+      }
     },
     "sensor": {
-      "wijk_overschot": { "name": "Overschot in de wijk" },
-      "beursprijs": { "name": "Beursprijs" },
-      "gedeeld_week": { "name": "Gedeeld deze week" }
+      "wijk_overschot": {
+        "name": "Overschot in de wijk"
+      },
+      "beursprijs": {
+        "name": "Beursprijs"
+      },
+      "gedeeld_week": {
+        "name": "Gedeeld deze week"
+      },
+      "energieplan": {
+        "name": "Energieplan"
+      },
+      "verwachte_besparing": {
+        "name": "Verwachte besparing"
+      }
+    },
+    "switch": {
+      "energieplan_uitvoeren": {
+        "name": "Energieplan uitvoeren"
+      }
+    },
+    "button": {
+      "energieplan_pauze": {
+        "name": "Energieplan 2 uur pauzeren"
+      },
+      "energieplan_hervat": {
+        "name": "Energieplan hervatten"
+      }
     }
   }
 }

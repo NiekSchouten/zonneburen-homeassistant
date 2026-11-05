@@ -30,6 +30,7 @@ from .const import (
     CONF_NET, CONF_NET_OM, CONF_OVERIG, CONF_SOC, CONF_VERBRUIK, CONF_WIJK_AUTOMATISCH, CONF_ZON, DOMAIN, FIRMWARE,
     SIGNAAL_BIJGEWERKT,
 )
+from .ems import EmsUitvoerder
 from .verbinding import Verbinding
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ class ZonneburenHub:
         self._net_weg_gemeld = False
         self.andere_hub: str | None = None
         self._andere_hub_op = 0.0
+        self.ems = EmsUitvoerder(self)
 
     # ------------------------------------------------------------------ Levensloop
 
@@ -108,6 +110,7 @@ class ZonneburenHub:
             standen = opgeslagen.get("standen", [])
             self.standen = [int(s) if s in (-1, 0, 1) else 0 for s in standen][: protocol.MAX_APPARATEN]
             self.standen += [0] * (protocol.MAX_APPARATEN - len(self.standen))
+            self.ems.herstel(opgeslagen.get("emsplan"))
 
         self._log(INFO, f"Gestart als hub ({FIRMWARE})")
         self.verbinding.start()
@@ -151,7 +154,7 @@ class ZonneburenHub:
     async def _async_bewaar(self) -> None:
         await self._store.async_save({
             "dagen": self.dagen.dagen, "vakken": list(self.vakken), "logboek": list(self.logboek),
-            "week": self.week, "standen": self.standen,
+            "week": self.week, "standen": self.standen, "emsplan": self.ems.ruw,
         })
 
     @property
@@ -211,6 +214,8 @@ class ZonneburenHub:
             "chg_today": round(vandaag["chg"], 1), "dis_today": round(vandaag["dis"], 1),
         }.items() if v is not None}
 
+        self.hass.async_create_task(self.ems.tik(net, bat, soc))
+
         if nu >= self._volgende_live:
             self._volgende_live = nu + (LIVE_GEKEKEN_S if nu < self._kijken_tot else LIVE_RUSTIG_S)
             self._publiceer_huis("hub/live", json.dumps(self.live))
@@ -266,6 +271,13 @@ class ZonneburenHub:
     def _publiceer_huis(self, blad: str, payload: str, qos: int = 0) -> None:
         self.verbinding.publiceer(protocol.huis_topic(self.adres, blad), payload, qos=qos)
 
+    def _stuur_vermogens(self) -> None:
+        """Wat deze uitvoerder kan, retained: de webapp toont het en de server weet wat hij kan vragen."""
+        vermogens = self.ems.vermogens()
+        self.ems._vermogens_gemeld = json.dumps(vermogens, sort_keys=True)
+        self.verbinding.publiceer(protocol.huis_topic(self.adres, "hub/vermogens"), json.dumps(vermogens, ensure_ascii=False),
+                                  qos=1, retain=True)
+
     def _ack(self, commando: str, resultaat: str) -> None:
         self._publiceer_huis("ack", protocol.bouw_ack(self.adres, commando, resultaat, dt_util.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")))
 
@@ -276,6 +288,7 @@ class ZonneburenHub:
         self._log(GOED if verbonden else LET_OP, "Verbonden met Zonneburen" if verbonden else "Verbinding met Zonneburen verbroken")
         if verbonden:
             self._volgende_info = self._volgende_live = 0
+            self._stuur_vermogens()
         self._bijgewerkt()
 
     @callback
@@ -286,7 +299,9 @@ class ZonneburenHub:
             _LOGGER.exception("Bericht op %s niet verwerkt", topic)
 
     def _verwerk(self, topic: str, payload: bytes) -> None:
-        if topic == protocol.huis_topic(self.adres, "hub/opdracht"):
+        if topic == protocol.huis_topic(self.adres, "hub/plan"):
+            self.ems.ontvang(payload)
+        elif topic == protocol.huis_topic(self.adres, "hub/opdracht"):
             if opdracht := protocol.lees_opdracht(payload):
                 self.hass.async_create_task(self._opdracht(opdracht))
         elif topic == protocol.huis_topic(self.adres, "telemetrie"):
@@ -469,6 +484,7 @@ class ZonneburenHub:
             "bronFout": "Net-sensor geeft geen waarde" if self._net_weg_gemeld else "",
             "bediening": self.opties.get(CONF_BEDIENING, True), "regels": True, "vraag": self.vraag, "noodstop": self.noodstop,
             "meldingen": [], "apparaten": self._apparaten_json(), "witgoed": {"appliances": []},
+            "ems": self.ems.info(),
         }
 
     def _ha_lijst(self) -> dict:
