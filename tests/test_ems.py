@@ -7,6 +7,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_mock_service
 
 from custom_components.zonneburen import protocol
@@ -110,8 +111,9 @@ async def test_sensoren_van_het_plan(hass, hub):
     hub._bijgewerkt()
     await hass.async_block_till_done()
 
-    plan = next(s for s in hass.states.async_all("sensor") if s.entity_id.endswith("energieplan"))
+    register = er.async_get(hass)
+    plan = hass.states.get(register.async_get_entity_id("sensor", DOMAIN, f"{hub.hub_id}_energieplan"))
     assert plan.state == "Goedkoop bijladen van het net"
     assert plan.attributes["blokken"][0]["stand"] == "netladen" and plan.attributes["kwartieren"]
-    besparing = next(s for s in hass.states.async_all("sensor") if s.entity_id.endswith("verwachte_besparing"))
+    besparing = hass.states.get(register.async_get_entity_id("sensor", DOMAIN, f"{hub.hub_id}_verwachte_besparing"))
     assert float(besparing.state) == VOORBEELD["verwacht"]["besparingBatterij"]
