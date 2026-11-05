@@ -80,6 +80,7 @@ def test_prijs_van_het_huidige_kwartier():
 @pytest.mark.parametrize("entiteit,eenheid,soort", [
     ("switch.boiler", None, 1), ("climate.woonkamer", "°C", 1), ("light.keuken", None, 1),
     ("sensor.p1", "W", 2), ("sensor.batterij", "%", 2), ("sensor.temp", "°C", 0), ("weather.thuis", None, 0),
+    ("number.batterij_vermogen", "W", 3), ("select.batterij_stand", None, 3),
 ])
 def test_entiteiten_zoals_op_de_hub(entiteit, eenheid, soort):
     assert p.entiteit_soort(entiteit, eenheid) == soort

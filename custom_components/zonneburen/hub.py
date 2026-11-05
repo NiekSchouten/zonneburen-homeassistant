@@ -26,9 +26,10 @@ from homeassistant.util import dt as dt_util
 
 from . import historie, protocol
 from .const import (
-    CONF_ADRES, CONF_APPARAAT_ID, CONF_APPARATEN, CONF_BATTERIJ, CONF_BATTERIJ_OM, CONF_BEDIENING, CONF_NAAM,
-    CONF_NET, CONF_NET_OM, CONF_OVERIG, CONF_SOC, CONF_VERBRUIK, CONF_WIJK_AUTOMATISCH, CONF_ZON, DOMAIN, FIRMWARE,
-    SIGNAAL_BIJGEWERKT,
+    CONF_ADRES, CONF_APPARAAT_ID, CONF_APPARATEN, CONF_BATTERIJ, CONF_BATTERIJ_OM, CONF_BEDIENING, CONF_EMS_AAN,
+    CONF_EMS_LADEN_POSITIEF, CONF_EMS_MAX_LAAD_W, CONF_EMS_MAX_ONTLAAD_W, CONF_EMS_MODUS, CONF_EMS_MODUS_STUREN,
+    CONF_EMS_MODUS_TERUG, CONF_EMS_NETDOEL, CONF_EMS_VERMOGEN, CONF_EMS_ZEKERING_A, CONF_NAAM, CONF_NET, CONF_NET_OM,
+    CONF_OVERIG, CONF_SOC, CONF_VERBRUIK, CONF_WIJK_AUTOMATISCH, CONF_ZON, DOMAIN, FIRMWARE, SIGNAAL_BIJGEWERKT,
 )
 from .ems import EmsUitvoerder
 from .verbinding import Verbinding
@@ -61,7 +62,17 @@ ALLEEN_OP_DE_HUB = (
 NAAR_OPTIE = {
     "haEntGrid": CONF_NET, "haEntPv": CONF_ZON, "haEntBat": CONF_BATTERIJ, "haEntSoc": CONF_SOC, "haEntLoad": CONF_VERBRUIK,
     "invertGrid": CONF_NET_OM, "invertBattery": CONF_BATTERIJ_OM, "deviceName": CONF_NAAM,
+    # Het energieplan; dezelfde namen als op de hub waar die bestaan.
+    "haEntBatSet": CONF_EMS_VERMOGEN, "haEntBatMode": CONF_EMS_MODUS,
+    "emsEnabled": CONF_EMS_AAN, "emsNetdoel": CONF_EMS_NETDOEL, "haBatSetInvert": CONF_EMS_LADEN_POSITIEF,
+    "haBatModeSteer": CONF_EMS_MODUS_STUREN, "haBatModeBack": CONF_EMS_MODUS_TERUG,
+    "emsMaxLaadW": CONF_EMS_MAX_LAAD_W, "emsMaxOntlaadW": CONF_EMS_MAX_ONTLAAD_W, "mainFuseA": CONF_EMS_ZEKERING_A,
+    "ruleWijkAuto": CONF_WIJK_AUTOMATISCH,
 }
+# Welke soort waarde de webapp mag sturen. Bediening op afstand staat er bewust niet bij: die kan
+# alleen in Home Assistant zelf aan, anders zet wie het account heeft zichzelf de deur open.
+JA_NEE = ("invertGrid", "invertBattery", "emsEnabled", "emsNetdoel", "haBatSetInvert", "ruleWijkAuto")
+GETALLEN = {"emsMaxLaadW": (0, 50000), "emsMaxOntlaadW": (0, 50000), "mainFuseA": (0, 80)}
 
 
 class ZonneburenHub:
@@ -559,6 +570,12 @@ class ZonneburenHub:
             # Gemaskeerd: de webapp ziet Home Assistant als gekoppeld, maar stuurt het nooit terug.
             "haUrl": "Home Assistant", "haToken": "********",
             **{sleutel: o.get(optie) or "" for sleutel, optie in NAAR_OPTIE.items() if sleutel.startswith("haEnt")},
+            "emsEnabled": bool(o.get(CONF_EMS_AAN)), "emsNetdoel": bool(o.get(CONF_EMS_NETDOEL)),
+            "haBatSetInvert": bool(o.get(CONF_EMS_LADEN_POSITIEF)),
+            "haBatModeSteer": o.get(CONF_EMS_MODUS_STUREN) or "", "haBatModeBack": o.get(CONF_EMS_MODUS_TERUG) or "",
+            "emsMaxLaadW": float(o.get(CONF_EMS_MAX_LAAD_W) or 0), "emsMaxOntlaadW": float(o.get(CONF_EMS_MAX_ONTLAAD_W) or 0),
+            "mainFuseA": int(o.get(CONF_EMS_ZEKERING_A) or o.get(CONF_OVERIG, {}).get("mainFuseA") or 0), "ruleWijkAuto": bool(o.get(CONF_WIJK_AUTOMATISCH, True)),
+            "bediening": bool(o.get(CONF_BEDIENING, True)),
             "loads": self._apparaten(),
         }
 
@@ -569,6 +586,15 @@ class ZonneburenHub:
             return "deze instelling hoort bij de Zonneburen Link, niet bij Home Assistant"
         if waarden.get("source", "ha") != "ha" or waarden.get("meterType", "none") != "none":
             return "kies je bronnen in de integratie in Home Assistant"
+
+        if "bediening" in waarden:
+            return "bediening op afstand zet je in Home Assistant zelf aan of uit"
+        for sleutel, (laag, hoog) in GETALLEN.items():
+            if sleutel in waarden and (not isinstance(waarden[sleutel], (int, float)) or isinstance(waarden[sleutel], bool)
+                                       or not laag <= waarden[sleutel] <= hoog):
+                return f"ongeldige waarde voor {sleutel}"
+        if any(sleutel in waarden and not isinstance(waarden[sleutel], bool) for sleutel in JA_NEE):
+            return "verwacht aan of uit"
 
         opties = dict(self.opties)
         overig = dict(opties.get(CONF_OVERIG, {}))

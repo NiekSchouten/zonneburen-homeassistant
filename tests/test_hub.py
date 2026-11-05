@@ -136,3 +136,32 @@ async def test_zonder_bediening_alleen_lezen(hass, hub):
     hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("modus", i=0, modus="on"))
     await hass.async_block_till_done()
     assert not hub.verstuurd("hub/antwoord")[-1]["ok"]
+
+
+async def test_energieplan_instellen_vanuit_de_webapp(hass, hub):
+    hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("gegevens", soort="instellingen"))
+    await hass.async_block_till_done()
+    instellingen = hub.verstuurd("hub/antwoord")[-1]["data"]
+    assert instellingen["emsEnabled"] is False and instellingen["haEntBatSet"] == "" and instellingen["bediening"] is True
+
+    hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("instellingen", waarden={
+        "emsEnabled": True, "haEntBatSet": "number.batterij", "emsMaxLaadW": 2500, "mainFuseA": 25, "ruleWijkAuto": False}))
+    await hass.async_block_till_done()
+    assert hub.verstuurd("hub/antwoord")[-1]["ok"]
+    assert hub.entry.options["ems_aan"] is True and hub.entry.options["ems_vermogen"] == "number.batterij"
+    assert hub.entry.options["ems_max_laad_w"] == 2500 and hub.entry.options["wijk_automatisch"] is False
+
+    # Bediening op afstand gaat alleen in Home Assistant zelf; onzin wordt geweigerd.
+    for waarden in ({"bediening": False}, {"emsMaxLaadW": "veel"}, {"emsEnabled": "ja"}):
+        hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("instellingen", waarden=waarden))
+        await hass.async_block_till_done()
+        assert not hub.verstuurd("hub/antwoord")[-1]["ok"]
+    assert hub.entry.options["bediening"] is True
+
+
+async def test_instelbare_entiteiten_in_de_lijst(hass, hub):
+    hass.states.async_set("number.batterij", "0", {"unit_of_measurement": "W", "friendly_name": "Batterij vermogen"})
+    hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("gegevens", soort="ha"))
+    await hass.async_block_till_done()
+    entiteiten = [e["e"] for e in hub.verstuurd("hub/antwoord")[-1]["data"]["entiteiten"]]
+    assert "number.batterij" in entiteiten

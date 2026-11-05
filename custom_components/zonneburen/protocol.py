@@ -29,6 +29,8 @@ ROL_BOILER, ROL_LAADPAAL, ROL_AIRCO, ROL_ANDERS, ROL_LICHT = 0, 1, 2, 3, 4
 SOORT_HOME_ASSISTANT = 6
 
 STUURBARE_DOMEINEN = ("switch", "light", "input_boolean", "fan", "climate", "water_heater")
+# Om een batterij mee te sturen voor het energieplan: een vermogen of een stand.
+INSTELBARE_DOMEINEN = ("number", "input_number", "select", "input_select")
 
 
 def huis_topic(adres: str, blad: str) -> str:
@@ -165,10 +167,14 @@ def prijs_nu(bericht: dict | None, nu: float) -> float | None:
 
 
 def entiteit_soort(entity_id: str, eenheid: str | None) -> int:
-    """1 = stuurbaar, 2 = vermogens- of procentsensor, 0 = niet bruikbaar (zoals zbHaEntityKind)."""
+    """1 = stuurbaar, 2 = vermogens- of procentsensor, 3 = instelbaar (number, select), 0 = niet bruikbaar.
+
+    1 en 2 zoals zbHaEntityKind op de hub; 3 kent alleen de integratie, voor het energieplan."""
     domein = entity_id.split(".", 1)[0]
     if domein in STUURBARE_DOMEINEN:
         return 1
+    if domein in INSTELBARE_DOMEINEN:
+        return 3
     return 2 if domein == "sensor" and eenheid in ("W", "kW", "%") else 0
 
 
