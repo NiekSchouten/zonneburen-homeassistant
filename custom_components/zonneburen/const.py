@@ -1,7 +1,7 @@
 """Vaste waarden van de Zonneburen-integratie."""
 
 DOMAIN = "zonneburen"
-VERSIE = "0.2.0"
+VERSIE = "0.3.0"
 
 # De webapp herkent hieraan een software-hub: geen firmware, bijwerken gaat via HACS.
 FIRMWARE = f"ha-{VERSIE}"
@@ -29,6 +29,20 @@ CONF_WIJK_AUTOMATISCH = "wijk_automatisch"
 CONF_APPARATEN = "apparaten"
 CONF_NAAM = "naam"
 CONF_OVERIG = "overig"
+
+# Het energieplan: welke entiteit de batterij stuurt, en de lokale grenzen.
+CONF_EMS_AAN = "ems_aan"
+CONF_EMS_VERMOGEN = "ems_vermogen"
+CONF_EMS_NETDOEL = "ems_netdoel"
+CONF_EMS_LADEN_POSITIEF = "ems_laden_positief"
+CONF_EMS_MODUS = "ems_modus"
+CONF_EMS_MODUS_STUREN = "ems_modus_sturen"
+CONF_EMS_MODUS_TERUG = "ems_modus_terug"
+CONF_EMS_MAX_LAAD_W = "ems_max_laad_w"
+CONF_EMS_MAX_ONTLAAD_W = "ems_max_ontlaad_w"
+CONF_EMS_ZEKERING_A = "ems_zekering_a"
+EMS_OPTIES = (CONF_EMS_AAN, CONF_EMS_VERMOGEN, CONF_EMS_NETDOEL, CONF_EMS_LADEN_POSITIEF, CONF_EMS_MODUS, CONF_EMS_MODUS_STUREN,
+              CONF_EMS_MODUS_TERUG, CONF_EMS_MAX_LAAD_W, CONF_EMS_MAX_ONTLAAD_W, CONF_EMS_ZEKERING_A)
 
 SENSOREN = (CONF_NET, CONF_ZON, CONF_BATTERIJ, CONF_SOC, CONF_VERBRUIK)
 

@@ -50,20 +50,74 @@
           "verbruik": "House consumption",
           "wijk_automatisch": "Join automatically when the neighbourhood has a surplus",
           "bediening": "Allow control from the web app"
+        },
+        "sections": {
+          "energieplan": {
+            "name": "Energy plan",
+            "description": "Let Home Assistant carry out the plan from the web app. Pick the entity of your battery integration that sets the power.",
+            "data": {
+              "ems_aan": "Carry out the energy plan",
+              "ems_vermogen": "Entity that sets the battery power (W)",
+              "ems_netdoel": "This entity is a grid target (like the grid setpoint of a Victron ESS)",
+              "ems_laden_positief": "For this entity a positive number means charging",
+              "ems_modus": "Entity for the battery mode (optional)",
+              "ems_modus_sturen": "Mode for external control",
+              "ems_modus_terug": "Mode to return to",
+              "ems_max_laad_w": "Charge at most (W)",
+              "ems_max_ontlaad_w": "Discharge at most (W)",
+              "ems_zekering_a": "Main fuse (A)"
+            },
+            "data_description": {
+              "ems_vermogen": "Positive means discharging, unless you flip it below.",
+              "ems_modus_sturen": "For example the option that puts the battery in external control. Leave empty if not needed.",
+              "ems_max_laad_w": "Empty or 0: the maximum from the plan."
+            }
+          }
         }
       }
     }
   },
   "entity": {
     "binary_sensor": {
-      "verbonden": { "name": "Connected to Zonneburen" },
-      "wijkstroom": { "name": "Neighbourhood power active" },
-      "noodstop": { "name": "Emergency stop" }
+      "verbonden": {
+        "name": "Connected to Zonneburen"
+      },
+      "wijkstroom": {
+        "name": "Neighbourhood power active"
+      },
+      "noodstop": {
+        "name": "Emergency stop"
+      }
     },
     "sensor": {
-      "wijk_overschot": { "name": "Neighbourhood surplus" },
-      "beursprijs": { "name": "Spot price" },
-      "gedeeld_week": { "name": "Shared this week" }
+      "wijk_overschot": {
+        "name": "Neighbourhood surplus"
+      },
+      "beursprijs": {
+        "name": "Spot price"
+      },
+      "gedeeld_week": {
+        "name": "Shared this week"
+      },
+      "energieplan": {
+        "name": "Energy plan"
+      },
+      "verwachte_besparing": {
+        "name": "Expected saving"
+      }
+    },
+    "switch": {
+      "energieplan_uitvoeren": {
+        "name": "Carry out energy plan"
+      }
+    },
+    "button": {
+      "energieplan_pauze": {
+        "name": "Pause energy plan for 2 hours"
+      },
+      "energieplan_hervat": {
+        "name": "Resume energy plan"
+      }
     }
   }
 }

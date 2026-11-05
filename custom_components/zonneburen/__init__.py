@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 
 from .hub import ZonneburenHub
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
 
 type ZonneburenConfigEntry = ConfigEntry[ZonneburenHub]
 
