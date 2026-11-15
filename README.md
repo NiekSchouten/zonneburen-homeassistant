@@ -73,7 +73,7 @@ het overschot in de wijk, de beursprijs en wat je deze week deelde.
 
 Wil je later iets aanpassen? Kies bij de integratie **Configureren**.
 
-## 3. Energieplan (optioneel, voor een thuisbatterij)
+## 3. Energieplan voor je batterij (optioneel)
 
 De server maakt elk kwartier een plan voor je batterij: laden als stroom goedkoop is, ontladen als
 hij duur is. Home Assistant voert dat plan uit en stuurt elke vijf seconden bij op je slimme meter.
@@ -94,6 +94,23 @@ te pauzeren of te hervatten.
 een minuut niets meldt, zet de integratie het vermogen op 0 en de batterij terug in zijn eigen stand.
 Een plan dat niet door de controle komt, wordt geweigerd; het vorige blijft dan gelden. Draait er ook
 EMHASS, evcc of een ander energiebeheer, dan krijg je een melding: twee regelaars werken elkaar tegen.
+
+## 4. Apparaten in het energieplan (optioneel, ook zonder batterij)
+
+Vanaf 0.4.0 zet het energieplan ook je apparaten op het goedkoopste moment of op je eigen zon aan:
+de auto, de boiler, de warmtepomp, een airco, elektrische verwarming, witgoed en een zwembadpomp.
+
+1. Voeg het apparaat toe in de webapp bij **Apparaten** (een schakelaar, thermostaat of boiler uit
+   Home Assistant).
+2. Kies het in de webapp bij **Energieplan → Instellen → Apparaten in het plan**, en vul in wanneer
+   het klaar moet zijn. Onder *Meer instellingen* staan onder andere een prijsgrens, weekdagen, een
+   minimale looptijd en comfortgrenzen voor de warmtepomp.
+3. Zet de webapp op **Sturen** en vink in Home Assistant **Energieplan uitvoeren** aan. Een
+   batterij-entiteit is hiervoor niet nodig.
+
+Bij een thermostaat of boiler zet het plan de temperatuur even hoger of lager; daarna gaat hij terug
+naar de normale temperatuur uit Apparaten. Wat je zelf op *Handmatig* zet en de noodstop gaan altijd
+voor. Bij een pauze of zonder geldig plan doen de apparaten weer wat ze normaal doen.
 
 ## Bijwerken
 
@@ -120,5 +137,5 @@ van de broker staat er niet in.
   staat los van een MQTT-broker die je zelf in Home Assistant gebruikt.
 - Wat je in Home Assistant zelf schakelt, blijft staan. Alleen een wijkcommando, de noodstop of een
   keuze in de webapp verandert iets.
-- Nog niet mogelijk: witgoed plannen en de eigen regels van de hub (eerst je eigen zon, piekuren,
-  prijsgrens). Die komen in een volgende versie.
+- Witgoed, eigen zon eerst en een prijsgrens stel je per apparaat in bij het energieplan in de webapp
+  (zie hierboven). De losse regels van de hub voor piekuren komen in een volgende versie.

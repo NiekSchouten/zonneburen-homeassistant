@@ -8,6 +8,7 @@ Home Assistant kent, doet mee.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import time
@@ -109,6 +110,8 @@ class ZonneburenHub:
         self.andere_hub: str | None = None
         self._andere_hub_op = 0.0
         self.ems = EmsUitvoerder(self)
+        # Wat het energieplan per apparaat vroeg bij de vorige tik: schakelen alleen bij een verandering.
+        self._plan_apparaten: tuple | None = None
 
     # ------------------------------------------------------------------ Levensloop
 
@@ -226,6 +229,7 @@ class ZonneburenHub:
         }.items() if v is not None}
 
         self.hass.async_create_task(self.ems.tik(net, bat, soc))
+        self._volg_plan()
 
         if nu >= self._volgende_live:
             self._volgende_live = nu + (LIVE_GEKEKEN_S if nu < self._kijken_tot else LIVE_RUSTIG_S)
@@ -412,9 +416,25 @@ class ZonneburenHub:
             return False, "Handmatig uit"
         if self.noodstop:
             return apparaat["normalOn"], "Noodstop"
+        plan = self.ems.apparaat(i)
+        if plan.soort == "plan":
+            return bool(plan.aan), "Energieplan: pauze" if plan.stand == "blokkeren" and not plan.aan else "Energieplan"
         if self.wijk_actief and apparaat["wijk"]:
             return True, "Wijkstroom"
+        if plan.soort == "rust":
+            return False, "Energieplan: wacht op het beste moment"
         return apparaat["normalOn"], "Normaal aan" if apparaat["normalOn"] else "Uit"
+
+    def _volg_plan(self) -> None:
+        """Bij de grens van een blok in het energieplan de apparaten bijwerken."""
+        nu = tuple(dataclasses.astuple(self.ems.apparaat(i)) for i in range(len(self._apparaten())))
+        if self._plan_apparaten is None:
+            # Net gestart: niet ingrijpen in wat er nu aan staat, pas bij de volgende verandering.
+            self._plan_apparaten = nu
+            return
+        if nu != self._plan_apparaten:
+            self._plan_apparaten = nu
+            self.hass.async_create_task(self._pas_toe())
 
     def _is_aan(self, entity_id: str) -> bool | None:
         staat = self.hass.states.get(entity_id)
@@ -427,14 +447,16 @@ class ZonneburenHub:
         for i, apparaat in enumerate(self._apparaten()):
             if not apparaat["enabled"] or apparaat["type"] != protocol.SOORT_HOME_ASSISTANT or not apparaat["host"]:
                 continue
-            aan, _ = self._gewenst(i, apparaat)
-            if self._is_aan(apparaat["host"]) is not aan or apparaat["host"].split(".", 1)[0] in ("climate", "water_heater"):
-                await self._schakel(apparaat, aan)
+            aan, reden = self._gewenst(i, apparaat)
+            # Een temperatuur uit het plan geldt alleen zolang het plan het apparaat stuurt.
+            temp = self.ems.apparaat(i).temp if reden.startswith("Energieplan") else None
+            if self._is_aan(apparaat["host"]) is not aan or temp is not None or apparaat["host"].split(".", 1)[0] in ("climate", "water_heater"):
+                await self._schakel(apparaat, aan, temp=temp)
 
-    async def _schakel(self, apparaat: dict, aan: bool, dim: int | None = None) -> bool:
+    async def _schakel(self, apparaat: dict, aan: bool, dim: int | None = None, temp: float | None = None) -> bool:
         entiteit = apparaat["host"]
         domein = entiteit.split(".", 1)[0]
-        temperatuur = apparaat["boostTemp"] if aan else apparaat["normalTemp"]
+        temperatuur = temp if temp is not None else apparaat["boostTemp"] if aan else apparaat["normalTemp"]
         try:
             if domein in ("climate", "water_heater") and temperatuur:
                 await self.hass.services.async_call(domein, "set_temperature", {"entity_id": entiteit, "temperature": temperatuur}, blocking=True)
