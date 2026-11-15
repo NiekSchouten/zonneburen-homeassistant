@@ -32,6 +32,10 @@ slimme-metersensor kiezen. Klaar in vijf minuten.
 
 Sinds Home Assistant 2026.11 heet HACS de **Marketplace** en zit het in Home Assistant zelf.
 
+[![Zonneburen openen in de Marketplace](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=NiekSchouten&repository=zonneburen-homeassistant&category=integration)
+
+De knop opent Zonneburen meteen in je eigen Home Assistant. Werkt hij niet, voeg het dan zelf toe:
+
 1. Ga naar **Instellingen → Marketplace**.
 2. Kies **Add from link** (toevoegen via link) en vul in:
    `https://github.com/NiekSchouten/zonneburen-homeassistant`
@@ -63,8 +67,9 @@ toevoegen** en kies **Zonneburen**.
 Dat is alles. Onder het apparaat **Zonneburen** zie je nu of je verbonden bent, of er wijkstroom loopt,
 het overschot in de wijk, de beursprijs en wat je deze week deelde.
 
-> **Let op:** gebruik je nog de Zonneburen-blueprint of een Zonneburen Link? Zet die dan uit. Twee
-> zenders op één adres tellen je verbruik dubbel; Home Assistant waarschuwt je als dat gebeurt.
+> **Let op:** draait er nog een Zonneburen Link of de oude Zonneburen-blueprint? Zet die dan uit (de
+> blueprint onder **Instellingen → Automatiseringen en scènes**). Twee zenders op één adres tellen je
+> verbruik dubbel; Home Assistant waarschuwt je als dat gebeurt.
 
 Wil je later iets aanpassen? Kies bij de integratie **Configureren**.
 
@@ -101,7 +106,7 @@ Assistant geen firmware aan.
 | --- | --- |
 | *Deze code is onbekend of verlopen* | Maak in de webapp een nieuwe koppelcode aan. |
 | *Verbonden met Zonneburen* staat uit | Controleer je internet; de integratie verbindt zelf opnieuw. |
-| Verbruik in de webapp is dubbel of raar | Zet de blueprint of Zonneburen Link uit, en controleer het teken van je netsensor. |
+| Verbruik in de webapp is dubbel of raar | Zet de Zonneburen Link of de oude blueprint uit, en controleer het teken van je netsensor. |
 | Batterij doet niets | Staat *Energieplan uitvoeren* aan en staat de webapp op *Sturen*? Kijk in de sensor *Energieplan*. |
 | Geen logo te zien | Werk Home Assistant bij naar 2026.3 of nieuwer. |
 
