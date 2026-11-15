@@ -2,34 +2,49 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to Zonneburen",
-        "description": "Create a pairing code under My hub in the web app and enter it here.",
+        "title": "Step 1 of 2: connect to Zonneburen",
+        "description": "Open the Zonneburen web app, go to **My hub** and create a pairing code. Enter that code here.",
         "data": {
           "server": "Web app address",
           "code": "Pairing code"
+        },
+        "data_description": {
+          "server": "Leave this as is, unless your neighbourhood has its own web app.",
+          "code": "The code from the web app. Upper or lower case doesn't matter."
         }
       },
       "sensoren": {
-        "title": "Your sensors",
-        "description": "Connected as {adres}. Pick the sensors Home Assistant already has. Only the grid is required to take part.",
+        "title": "Step 2 of 2: your sensors",
+        "description": "Connected as **{adres}**.\n\nPick the sensors Home Assistant already knows about your home. Only **Grid** is required; the others make the charts in the web app more complete. You can always change this later with **Configure**.",
         "data": {
-          "net": "Grid (positive = import)",
+          "net": "Grid",
           "net_omdraaien": "Invert the grid sign",
-          "zon": "Solar panels",
-          "batterij": "Battery (positive = discharging)",
+          "zon": "Solar panels (optional)",
+          "batterij": "Home battery (optional)",
           "batterij_omdraaien": "Invert the battery sign",
-          "soc": "Battery state of charge",
-          "verbruik": "House consumption",
+          "soc": "Battery state of charge (optional)",
+          "verbruik": "House consumption (optional)",
           "wijk_automatisch": "Join automatically when the neighbourhood has a surplus",
           "bediening": "Allow control from the web app"
+        },
+        "data_description": {
+          "net": "The power (W) from your smart meter. Should be positive when you import and negative when you export.",
+          "net_omdraaien": "Tick this if your meter does it the other way round: positive when exporting.",
+          "zon": "The power your solar panels produce right now.",
+          "batterij": "The power of your home battery. Should be positive when discharging.",
+          "batterij_omdraaien": "Tick this if your battery reports positive while charging.",
+          "soc": "How full the battery is, in percent.",
+          "verbruik": "What your whole house uses right now.",
+          "wijk_automatisch": "When the neighbourhood has power to spare, Home Assistant switches on your chosen devices (water heater, EV charger) by itself. Off: you get a notification to confirm first.",
+          "bediening": "Lets you switch devices in Home Assistant on and off from the web app."
         }
       }
     },
     "error": {
       "code_onbekend": "This code is unknown or expired. Create a new one in the web app.",
-      "niet_toegestaan": "The server refuses this pairing.",
+      "niet_toegestaan": "The server refuses this pairing. Ask your neighbourhood board for help.",
       "te_vaak": "Too many attempts. Try again in fifteen minutes.",
-      "niet_bereikbaar": "The web app cannot be reached.",
+      "niet_bereikbaar": "The web app cannot be reached. Check the address and your internet connection.",
       "geen_https": "The address must start with https://."
     },
     "abort": {
@@ -39,38 +54,57 @@
   "options": {
     "step": {
       "init": {
-        "title": "Your sensors",
+        "title": "Zonneburen settings",
+        "description": "Change your sensors, or expand **Energy plan** to let Home Assistant control your home battery.",
         "data": {
-          "net": "Grid (positive = import)",
+          "net": "Grid",
           "net_omdraaien": "Invert the grid sign",
-          "zon": "Solar panels",
-          "batterij": "Battery (positive = discharging)",
+          "zon": "Solar panels (optional)",
+          "batterij": "Home battery (optional)",
           "batterij_omdraaien": "Invert the battery sign",
-          "soc": "Battery state of charge",
-          "verbruik": "House consumption",
+          "soc": "Battery state of charge (optional)",
+          "verbruik": "House consumption (optional)",
           "wijk_automatisch": "Join automatically when the neighbourhood has a surplus",
           "bediening": "Allow control from the web app"
         },
+        "data_description": {
+          "net": "The power (W) from your smart meter. Should be positive when you import and negative when you export.",
+          "net_omdraaien": "Tick this if your meter does it the other way round: positive when exporting.",
+          "zon": "The power your solar panels produce right now.",
+          "batterij": "The power of your home battery. Should be positive when discharging.",
+          "batterij_omdraaien": "Tick this if your battery reports positive while charging.",
+          "soc": "How full the battery is, in percent.",
+          "verbruik": "What your whole house uses right now.",
+          "wijk_automatisch": "When the neighbourhood has power to spare, Home Assistant switches on your chosen devices (water heater, EV charger) by itself. Off: you get a notification to confirm first.",
+          "bediening": "Lets you switch devices in Home Assistant on and off from the web app."
+        },
         "sections": {
           "energieplan": {
-            "name": "Energy plan",
-            "description": "Let Home Assistant carry out the plan from the web app. Pick the entity of your battery integration that sets the power.",
+            "name": "Energy plan (control your home battery)",
+            "description": "First set **Energy plan** to **Control** in the web app. Then choose here how Home Assistant drives your battery.",
             "data": {
               "ems_aan": "Carry out the energy plan",
-              "ems_vermogen": "Entity that sets the battery power (W)",
-              "ems_netdoel": "This entity is a grid target (like the grid setpoint of a Victron ESS)",
-              "ems_laden_positief": "For this entity a positive number means charging",
+              "ems_vermogen": "Entity that sets the battery power",
+              "ems_netdoel": "This entity is a grid target",
+              "ems_laden_positief": "Positive number means charging",
               "ems_modus": "Entity for the battery mode (optional)",
               "ems_modus_sturen": "Mode for external control",
               "ems_modus_terug": "Mode to return to",
-              "ems_max_laad_w": "Charge at most (W)",
-              "ems_max_ontlaad_w": "Discharge at most (W)",
-              "ems_zekering_a": "Main fuse (A)"
+              "ems_max_laad_w": "Charge at most (optional)",
+              "ems_max_ontlaad_w": "Discharge at most (optional)",
+              "ems_zekering_a": "Main fuse (optional)"
             },
             "data_description": {
-              "ems_vermogen": "Positive means discharging, unless you flip it below.",
-              "ems_modus_sturen": "For example the option that puts the battery in external control. Leave empty if not needed.",
-              "ems_max_laad_w": "Empty or 0: the maximum from the plan."
+              "ems_aan": "Main switch. You can also turn this on and off later with the Carry out energy plan switch.",
+              "ems_vermogen": "A number entity (W) from your battery integration, such as the charge/discharge power. Positive means discharging.",
+              "ems_netdoel": "Tick this if the entity sets the desired power on the grid rather than the battery power, like the grid setpoint of a Victron ESS.",
+              "ems_laden_positief": "Tick this if the entity uses a positive number for charging.",
+              "ems_modus": "Only needed if your battery must first be put in a mode for external control.",
+              "ems_modus_sturen": "Exactly as the option is named in the list, for example Remote control. Leave empty if not needed.",
+              "ems_modus_terug": "The mode in which the battery manages itself again, for example Self consumption.",
+              "ems_max_laad_w": "In watts. Empty or 0: the maximum from the plan.",
+              "ems_max_ontlaad_w": "In watts. Empty or 0: the maximum from the plan.",
+              "ems_zekering_a": "In amps. The battery charges less hard as soon as a phase gets close to this value."
             }
           }
         }

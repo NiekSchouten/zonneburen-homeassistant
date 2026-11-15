@@ -534,7 +534,7 @@ class ZonneburenHub:
         elif actie == "herstart":
             self.hass.config_entries.async_schedule_reload(self.entry.entry_id)
         elif actie == "update":
-            fout = "werk de integratie bij via HACS"
+            fout = "werk de integratie bij via Instellingen → Marketplace in Home Assistant"
         elif actie in ("plan", "plan_stop"):
             fout = "plannen kan nog niet met Home Assistant"
         else:
