@@ -64,6 +64,15 @@ class EmsUitvoerder:
     def mag_sturen(self) -> bool:
         return bool(self.opties.get(CONF_EMS_AAN) and self.opties.get(CONF_BEDIENING, True) and self.opties.get(CONF_EMS_VERMOGEN))
 
+    def apparaat(self, index: int) -> ems_core.ApparaatStand:
+        """Wat het plan nu van een apparaat vraagt. Niets als uitvoeren uit staat of het plan gepauzeerd is.
+
+        Een batterij is hier niet voor nodig: ook een huis met alleen een boiler of auto kan het plan volgen."""
+        nu = time.time()
+        if not (self.opties.get(CONF_EMS_AAN) and self.opties.get(CONF_BEDIENING, True)) or self.pauze_tot > nu:
+            return ems_core.ApparaatStand(None)
+        return ems_core.apparaat_stand(self.plan, index, nu)
+
     def niveau(self) -> str:
         if not self.mag_sturen():
             return "D"

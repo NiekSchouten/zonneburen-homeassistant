@@ -165,3 +165,48 @@ async def test_instelbare_entiteiten_in_de_lijst(hass, hub):
     await hass.async_block_till_done()
     entiteiten = [e["e"] for e in hub.verstuurd("hub/antwoord")[-1]["data"]["entiteiten"]]
     assert "number.batterij" in entiteiten
+
+
+def _plan_met(lasten, apparaten=()):
+    import pathlib
+    voorbeeld = json.loads((pathlib.Path(__file__).parent / "plan_voorbeeld.json").read_text(encoding="utf-8"))
+    verschuiving = int(time.time()) // 900 * 900 - voorbeeld["t0"]
+    for veld in ("gemaakt", "geldigTot", "t0"):
+        voorbeeld[veld] += verschuiving
+    t0 = voorbeeld["t0"]
+    voorbeeld["lasten"] = [{**l, "van": t0 + l["van"], "tot": t0 + l["tot"]} for l in lasten]
+    voorbeeld["apparaten"] = list(apparaten)
+    return json.dumps(voorbeeld).encode()
+
+
+async def test_energieplan_zet_de_boiler_aan_in_zijn_blok(hass, hub):
+    aan = async_mock_service(hass, "homeassistant", "turn_on")
+    hass.config_entries.async_update_entry(hub.entry, options={**hub.entry.options, "ems_aan": True})
+    hub._tik()  # eerste tik: niets veranderen aan wat er nu staat
+    hub._verwerk(protocol.huis_topic(ADRES, "hub/plan"),
+                 _plan_met([{"id": "boiler", "stand": "aan", "maxW": 2000, "van": 0, "tot": 1800, "apparaat": 0, "actie": "aan"}],
+                           [{"i": 0, "rust": "uit"}]))
+    hub._tik()
+    await hass.async_block_till_done()
+
+    assert aan and aan[-1].data["entity_id"] == "switch.boiler"
+    assert hub._gewenst(0, hub._apparaten()[0]) == (True, "Energieplan")
+
+
+async def test_energieplan_houdt_de_auto_uit_tot_het_beste_moment(hass, hub):
+    hass.config_entries.async_update_entry(hub.entry, options={**hub.entry.options, "ems_aan": True})
+    hub._verwerk(protocol.huis_topic(ADRES, "hub/plan"),
+                 _plan_met([{"id": "ev", "stand": "laden", "maxW": 3700, "van": 7200, "tot": 9000, "apparaat": 0, "actie": "aan"}],
+                           [{"i": 0, "rust": "uit"}]))
+
+    assert hub._gewenst(0, hub._apparaten()[0]) == (False, "Energieplan: wacht op het beste moment")
+    # Handmatig gaat altijd voor.
+    hub.standen[0] = 1
+    assert hub._gewenst(0, hub._apparaten()[0]) == (True, "Handmatig aan")
+
+
+async def test_zonder_energieplan_uitvoeren_volgt_het_apparaat_het_plan_niet(hass, hub):
+    hub._verwerk(protocol.huis_topic(ADRES, "hub/plan"),
+                 _plan_met([{"id": "boiler", "stand": "aan", "maxW": 2000, "van": 0, "tot": 1800, "apparaat": 0, "actie": "aan"}]))
+
+    assert hub._gewenst(0, hub._apparaten()[0])[1] == "Uit"

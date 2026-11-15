@@ -17,6 +17,8 @@ PLAN, TERUGVAL, GEBRUIKER, NOODSTOP, GRENS = "plan", "terugval", "gebruiker", "n
 MAX_KWARTIEREN = 300
 KLOK_GELDIG = 1_700_000_000
 METING_TE_OUD_S = 60
+MAX_APPARATEN = 32
+ACTIES = ("aan", "uit")
 
 
 @dataclass
@@ -46,6 +48,8 @@ class Plan:
     export_max_w: float = 0
     lasten: list[dict] = field(default_factory=list)
     verwacht: dict = field(default_factory=dict)
+    # Wat een beheerd apparaat buiten zijn blokken doet: index -> "uit" of "normaal".
+    rust: dict[int, str] = field(default_factory=dict)
 
     def index(self, nu: float) -> int:
         if nu < self.t0:
@@ -130,9 +134,43 @@ def lees_plan(bericht: dict) -> tuple[Plan | None, str | None]:
         kwartieren.append(k)
 
     lasten = [last for last in bericht.get("lasten") or [] if isinstance(last, dict)]
+    for i, last in enumerate(lasten):
+        if "apparaat" not in last:
+            continue
+        index, temp = last.get("apparaat"), last.get("temp")
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < MAX_APPARATEN or last.get("actie") not in ACTIES:
+            return None, f"apparaatblok {i}: ongeldig apparaat of actie"
+        if temp is not None and not (isinstance(temp, (int, float)) and 5 <= temp <= 80):
+            return None, f"apparaatblok {i}: temperatuur buiten 5-80 graden"
+        if int(_getal(last.get("tot"), 0)) <= int(_getal(last.get("van"), 0)):
+            return None, f"apparaatblok {i}: eindigt niet na het begin"
+    rust = {}
+    for regel in bericht.get("apparaten") or []:
+        if isinstance(regel, dict) and isinstance(regel.get("i"), int) and regel.get("rust") in ("uit", "normaal"):
+            rust[regel["i"]] = regel["rust"]
     return Plan(str(bericht.get("planId", ""))[:40], gemaakt, geldig_tot, t0, 900, kwartieren, soc_min, soc_max,
                 max_laad, max_ontlaad, _getal(grenzen.get("importMaxW"), 0), _getal(grenzen.get("exportMaxW"), 0),
-                lasten, bericht.get("verwacht") if isinstance(bericht.get("verwacht"), dict) else {}), None
+                lasten, bericht.get("verwacht") if isinstance(bericht.get("verwacht"), dict) else {}, rust), None
+
+
+@dataclass
+class ApparaatStand:
+    aan: bool | None          # None = het plan zegt niets over dit apparaat
+    temp: float | None = None
+    soort: str = ""           # "plan": een blok loopt, "rust": beheerd, maar nu niets te doen
+    stand: str = ""
+
+
+def apparaat_stand(plan: Plan | None, index: int, nu: float) -> ApparaatStand:
+    """Wat het plan nu van apparaat `index` vraagt. Een verlopen plan vraagt niets meer."""
+    if plan is None or nu >= plan.geldig_tot:
+        return ApparaatStand(None)
+    for last in plan.lasten:
+        if last.get("apparaat") == index and _getal(last.get("van"), 0) <= nu < _getal(last.get("tot"), 0):
+            return ApparaatStand(last.get("actie") == "aan", _getal(last.get("temp")), "plan", str(last.get("stand", "")))
+    if plan.rust.get(index) == "uit":
+        return ApparaatStand(False, None, "rust")
+    return ApparaatStand(None)
 
 
 def _grens(lokaal: float, plan: float) -> float:

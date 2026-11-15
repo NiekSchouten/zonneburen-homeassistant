@@ -90,3 +90,45 @@ def test_blokken_voor_de_kaart():
     blokken = ems_core.blokken(plan, plan.t0)
     assert blokken[0]["stand"] == ems_core.NETLADEN and blokken[0]["van"] == plan.t0
     assert all(b["tot"] > b["van"] for b in blokken)
+
+
+def _met_apparaten(lasten, apparaten=()):
+    bericht = copy.deepcopy(VOORBEELD)
+    bericht["lasten"] = lasten
+    bericht["apparaten"] = list(apparaten)
+    return bericht
+
+
+def test_apparaat_volgt_het_blok_waarin_het_nu_zit():
+    t0 = VOORBEELD["t0"]
+    plan, fout = ems_core.lees_plan(_met_apparaten(
+        [{"id": "wp", "stand": "aanraden", "maxW": 900, "van": t0, "tot": t0 + 1800, "apparaat": 2, "actie": "aan", "temp": 21},
+         {"id": "wp", "stand": "blokkeren", "maxW": 900, "van": t0 + 3600, "tot": t0 + 5400, "apparaat": 3, "actie": "aan"}],
+        [{"i": 2, "rust": "normaal"}, {"i": 3, "rust": "uit"}]))
+    assert fout is None
+
+    stand = ems_core.apparaat_stand(plan, 2, t0 + 60)
+    assert (stand.aan, stand.temp, stand.soort) == (True, 21, "plan")
+    assert ems_core.apparaat_stand(plan, 2, t0 + 2000).soort == ""           # normaal: het plan zegt niets
+    assert ems_core.apparaat_stand(plan, 3, t0 + 2000).soort == "rust"       # blokkeercontact: uit
+    assert ems_core.apparaat_stand(plan, 3, t0 + 4000).aan is True           # blokkeren
+    assert ems_core.apparaat_stand(plan, 7, t0).aan is None                  # geen beheerd apparaat
+
+
+def test_verlopen_plan_stuurt_geen_apparaten_meer():
+    t0 = VOORBEELD["t0"]
+    plan, _ = ems_core.lees_plan(_met_apparaten([{"id": "ev", "stand": "laden", "maxW": 3700, "van": t0, "tot": t0 + 900000,
+                                                  "apparaat": 1, "actie": "aan"}], [{"i": 1, "rust": "uit"}]))
+    assert ems_core.apparaat_stand(plan, 1, plan.geldig_tot + 1).aan is None
+
+
+def test_weigert_een_ongeldig_apparaatblok():
+    t0 = VOORBEELD["t0"]
+    for last, reden in (
+        ({"van": t0, "tot": t0 + 900, "apparaat": 40, "actie": "aan"}, "apparaatblok 0: ongeldig apparaat of actie"),
+        ({"van": t0, "tot": t0 + 900, "apparaat": 1, "actie": "turbo"}, "apparaatblok 0: ongeldig apparaat of actie"),
+        ({"van": t0, "tot": t0 + 900, "apparaat": 1, "actie": "aan", "temp": 99}, "apparaatblok 0: temperatuur buiten 5-80 graden"),
+        ({"van": t0, "tot": t0, "apparaat": 1, "actie": "aan"}, "apparaatblok 0: eindigt niet na het begin"),
+    ):
+        plan, fout = ems_core.lees_plan(_met_apparaten([last]))
+        assert plan is None and fout == reden
