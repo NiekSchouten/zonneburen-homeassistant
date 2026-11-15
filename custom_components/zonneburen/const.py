@@ -1,9 +1,9 @@
 """Vaste waarden van de Zonneburen-integratie."""
 
 DOMAIN = "zonneburen"
-VERSIE = "0.3.0"
+VERSIE = "0.3.1"
 
-# De webapp herkent hieraan een software-hub: geen firmware, bijwerken gaat via HACS.
+# De webapp herkent hieraan een software-hub: geen firmware, bijwerken gaat via de Marketplace.
 FIRMWARE = f"ha-{VERSIE}"
 STANDAARD_SERVER = "https://zonopzwaagdijk.nl"
 

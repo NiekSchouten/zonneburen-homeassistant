@@ -1,61 +1,113 @@
+<p align="center">
+  <img src="custom_components/zonneburen/brand/icon.png" alt="Zonneburen" width="128">
+</p>
+
 # Zonneburen voor Home Assistant
 
-Maak van je Home Assistant de hub van je huis in de energiewijk Zonneburen. Je hebt
-dan geen Zonneburen Link nodig: Home Assistant doet hetzelfde, met alles wat het al van je huis weet.
+Maak van je Home Assistant de hub van je huis in de energiewijk Zonneburen. Je hebt dan geen
+Zonneburen Link nodig: Home Assistant doet hetzelfde, met alles wat het al van je huis weet.
+
+**In het kort:** installeren via de Marketplace → koppelcode uit de webapp invullen → je
+slimme-metersensor kiezen. Klaar in vijf minuten.
 
 ## Wat het doet
 
-- **Meedoen met de wijk.** Elke minuut gaat je netverbruik naar de wijk, net als bij de hub. Heeft de
-  wijk stroom over, dan zet Home Assistant je boiler, laadpaal of ander apparaat aan, en bevestigt dat.
+- **Meedoen met de wijk.** Elke minuut gaat je netverbruik naar de wijk. Heeft de wijk stroom over,
+  dan zet Home Assistant je boiler, laadpaal of ander apparaat aan.
 - **De webapp werkt gewoon.** Live meekijken, Inzichten, Meldingen en Apparaten: de webapp ziet Home
   Assistant als je hub.
-- **Elk apparaat uit Home Assistant.** Kies in de webapp bij Apparaten een schakelaar, lamp,
-  thermostaat of boiler uit Home Assistant. De lijst staat er direct, ook in een groot huis.
+- **Elk apparaat uit Home Assistant.** Kies in de webapp bij *Apparaten* een schakelaar, lamp,
+  thermostaat of boiler uit Home Assistant.
+- **Je thuisbatterij slim laden** met het energieplan uit de webapp (optioneel, zie hieronder).
 - **Noodstop van het bestuur** zet alles terug op normaal.
-- **In Home Assistant zelf** zie je of je verbonden bent, of er wijkstroom loopt, het overschot in de
-  wijk, de beursprijs en wat je deze week deelde.
 
-## Installeren
+## Wat heb je nodig
 
-1. Open HACS, kies rechtsboven de drie puntjes en dan **Aangepaste repositories**.
+- Home Assistant **2026.3 of nieuwer** (oudere versies werken vanaf 2024.12, maar tonen het logo niet).
+- Een account in de Zonneburen-webapp.
+- Een sensor in Home Assistant met het vermogen van je slimme meter (in W), bijvoorbeeld van een
+  P1-meter, HomeWizard of je omvormer.
+
+## 1. Installeren
+
+Sinds Home Assistant 2026.11 heet HACS de **Marketplace** en zit het in Home Assistant zelf.
+
+1. Ga naar **Instellingen → Marketplace**.
+2. Kies **Add from link** (toevoegen via link) en vul in:
+   `https://github.com/NiekSchouten/zonneburen-homeassistant`
+   De eerste keer vraagt Home Assistant om in te loggen bij GitHub; dat leest alleen openbare gegevens.
+3. Open **Zonneburen**, kies **Downloaden** en herstart Home Assistant.
+
+<details>
+<summary>Heb je Home Assistant 2026.10 of ouder (nog met HACS)?</summary>
+
+1. Open **HACS**, kies rechtsboven de drie puntjes en dan **Aangepaste repositories**.
 2. Vul `https://github.com/NiekSchouten/zonneburen-homeassistant` in, kies **Integratie** en voeg toe.
-3. Zoek **Zonneburen** in HACS, installeer het en herstart Home Assistant.
+3. Zoek **Zonneburen**, download het en herstart Home Assistant.
 
-## Koppelen
+</details>
 
-1. Maak in de webapp bij **Mijn hub** een koppelcode aan.
-2. Ga in Home Assistant naar **Instellingen → Apparaten en diensten → Integratie toevoegen** en kies
-   **Zonneburen**.
-3. Vul de koppelcode in.
-4. Kies je sensoren. Alleen het net is nodig: positief is afname. Zon, batterij en verbruik maken de
-   grafieken in de webapp vollediger.
+## 2. Koppelen
 
-Gebruik je nog de Zonneburen-blueprint of een Zonneburen Link? Zet die dan uit: twee zenders op één
-adres tellen je verbruik dubbel.
+[![Zonneburen toevoegen aan Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=zonneburen)
 
-## Energieplan
+Klik op de knop hierboven, of ga naar **Instellingen → Apparaten en diensten → Integratie
+toevoegen** en kies **Zonneburen**.
 
-Vanaf 0.3.0 kan Home Assistant het energieplan uit de webapp uitvoeren. De server rekent elk
-kwartier een plan voor je batterij; de integratie voert het kwartier van nu uit en regelt elke vijf
-seconden bij op je netsensor.
+1. **Koppelcode.** Maak in de webapp bij **Mijn hub** een koppelcode aan en vul die in. Het adres
+   van de webapp laat je staan.
+2. **Sensoren.** Kies bij **Net** de sensor van je slimme meter. Die moet positief zijn als je stroom
+   afneemt; is het bij jou andersom, vink dan *Teken van het net omdraaien* aan. Zon, batterij en
+   verbruik zijn optioneel en maken de grafieken in de webapp vollediger.
 
-1. Zet in de webapp bij *Energieplan* de stand op *Sturen*.
-2. Open in Home Assistant de opties van Zonneburen en klap *Energieplan* open.
-3. Kies de entiteit waarmee je batterij-integratie het vermogen instelt (een `number`, in W).
-   Is het een netdoel, zoals het grid setpoint van een Victron ESS, vink dat dan aan.
-4. Moet de batterij eerst in een stand voor externe sturing, kies dan de `select`-entiteit en de
-   opties om te sturen en om terug te zetten.
-5. Zet *Energieplan uitvoeren* aan.
+Dat is alles. Onder het apparaat **Zonneburen** zie je nu of je verbonden bent, of er wijkstroom loopt,
+het overschot in de wijk, de beursprijs en wat je deze week deelde.
 
-Je krijgt er een sensor *Energieplan* bij (wat de batterij nu doet, met de komende blokken als
-attributen), *Verwachte besparing*, een schakelaar *Energieplan uitvoeren* en knoppen om twee uur te
-pauzeren of te hervatten. In het dashboard laat de kaart `custom:zonneburen-energieplan-card` het
-plan als tijdlijn zien.
+> **Let op:** gebruik je nog de Zonneburen-blueprint of een Zonneburen Link? Zet die dan uit. Twee
+> zenders op één adres tellen je verbruik dubbel; Home Assistant waarschuwt je als dat gebeurt.
 
-Zonder geldig plan, bij een pauze of als je netsensor langer dan een minuut niets meldt, zet de
-integratie het vermogen op 0 en de batterij terug in zijn eigen stand. Draait er ook EMHASS, evcc of
-een ander EMS, dan krijg je een melding: twee regelaars werken elkaar tegen. Een plan dat niet door
-de controle komt, wordt geweigerd; het vorige blijft dan gelden.
+Wil je later iets aanpassen? Kies bij de integratie **Configureren**.
+
+## 3. Energieplan (optioneel, voor een thuisbatterij)
+
+De server maakt elk kwartier een plan voor je batterij: laden als stroom goedkoop is, ontladen als
+hij duur is. Home Assistant voert dat plan uit en stuurt elke vijf seconden bij op je slimme meter.
+
+1. Zet in de webapp bij **Energieplan** de stand op **Sturen**.
+2. Kies in Home Assistant bij Zonneburen **Configureren** en klap **Energieplan** open.
+3. Kies bij **Entiteit die het batterijvermogen instelt** de getal-entiteit (W) van je
+   batterij-integratie. Onder elk veld staat wat het betekent.
+4. Moet je batterij eerst in een stand voor externe sturing (veel omvormers hebben dat), kies dan ook
+   de stand-entiteit en vul de standen voor *sturen* en *terugzetten* in.
+5. Vink **Energieplan uitvoeren** aan en sla op.
+
+Je krijgt er een sensor **Energieplan** bij (wat de batterij nu doet, met de komende blokken als
+attributen), **Verwachte besparing**, een schakelaar **Energieplan uitvoeren** en knoppen om twee uur
+te pauzeren of te hervatten.
+
+**Altijd veilig.** Zonder geldig plan, bij een pauze, een noodstop of als je netsensor langer dan
+een minuut niets meldt, zet de integratie het vermogen op 0 en de batterij terug in zijn eigen stand.
+Een plan dat niet door de controle komt, wordt geweigerd; het vorige blijft dan gelden. Draait er ook
+EMHASS, evcc of een ander energiebeheer, dan krijg je een melding: twee regelaars werken elkaar tegen.
+
+## Bijwerken
+
+Een nieuwe versie verschijnt vanzelf onder **Instellingen → Updates**. De webapp biedt voor Home
+Assistant geen firmware aan.
+
+## Problemen oplossen
+
+| Wat zie je | Wat doe je |
+| --- | --- |
+| *Deze code is onbekend of verlopen* | Maak in de webapp een nieuwe koppelcode aan. |
+| *Verbonden met Zonneburen* staat uit | Controleer je internet; de integratie verbindt zelf opnieuw. |
+| Verbruik in de webapp is dubbel of raar | Zet de blueprint of Zonneburen Link uit, en controleer het teken van je netsensor. |
+| Batterij doet niets | Staat *Energieplan uitvoeren* aan en staat de webapp op *Sturen*? Kijk in de sensor *Energieplan*. |
+| Geen logo te zien | Werk Home Assistant bij naar 2026.3 of nieuwer. |
+
+Kom je er niet uit? Kies bij de integratie **⋮ → Diagnose downloaden** en stuur dat bestand mee met je
+vraag via [GitHub](https://github.com/NiekSchouten/zonneburen-homeassistant/issues). Het wachtwoord
+van de broker staat er niet in.
 
 ## Goed om te weten
 
@@ -63,11 +115,5 @@ de controle komt, wordt geweigerd; het vorige blijft dan gelden.
   staat los van een MQTT-broker die je zelf in Home Assistant gebruikt.
 - Wat je in Home Assistant zelf schakelt, blijft staan. Alleen een wijkcommando, de noodstop of een
   keuze in de webapp verandert iets.
-- Bijwerken gaat via HACS; de webapp biedt geen firmware aan.
 - Nog niet mogelijk: witgoed plannen en de eigen regels van de hub (eerst je eigen zon, piekuren,
   prijsgrens). Die komen in een volgende versie.
-
-## Problemen
-
-Kies bij de integratie **Diagnose downloaden** en stuur dat bestand mee met je vraag. Het wachtwoord
-van de broker staat er niet in.
