@@ -210,3 +210,38 @@ async def test_zonder_energieplan_uitvoeren_volgt_het_apparaat_het_plan_niet(has
                  _plan_met([{"id": "boiler", "stand": "aan", "maxW": 2000, "van": 0, "tot": 1800, "apparaat": 0, "actie": "aan"}]))
 
     assert hub._gewenst(0, hub._apparaten()[0])[1] == "Uit"
+
+
+async def test_webapp_zet_de_temperatuur_van_een_thermostaat(hass, hub):
+    hass.states.async_set("climate.woonkamer", "heat", {"temperature": 20, "current_temperature": 19.5, "min_temp": 7,
+                                                        "max_temp": 30, "target_temp_step": 0.5, "friendly_name": "Woonkamer"})
+    thermostaat = {"enabled": True, "name": "Woonkamer", "role": 2, "type": 6, "host": "climate.woonkamer", "watts": 1500}
+    hass.config_entries.async_update_entry(hub.entry, options={**hub.entry.options, "apparaten": [BOILER, thermostaat]})
+    instellen = async_mock_service(hass, "climate", "set_temperature")
+
+    regel = next(r for r in hub._apparaten_json()["loads"] if r["i"] == 1)
+    assert (regel["doel"], regel["temp"], regel["tmin"], regel["tmax"], regel["tstap"]) == (20, 19.5, 7, 30, 0.5)
+
+    hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("temperatuur", i=1, waarde=21.5))
+    await hass.async_block_till_done()
+    assert instellen[-1].data == {"entity_id": "climate.woonkamer", "temperature": 21.5}
+    assert hub.verstuurd("hub/antwoord")[-1] == {"id": "id-temperatuur", "ok": True}
+
+    hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("temperatuur", i=1, waarde=45))
+    await hass.async_block_till_done()
+    assert not hub.verstuurd("hub/antwoord")[-1]["ok"]
+
+    # Een gewone schakelaar heeft geen temperatuur.
+    hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("temperatuur", i=0, waarde=20))
+    await hass.async_block_till_done()
+    assert "geen instelbare temperatuur" in hub.verstuurd("hub/antwoord")[-1]["fout"]
+
+
+async def test_live_stuurt_vermogen_per_apparaat_als_er_iemand_kijkt(hass, hub):
+    hass.states.async_set("switch.boiler", "on", {"friendly_name": "Boiler"})
+    hub._tik()
+    assert "ap" not in hub.live
+    hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("kijk"))
+    await hass.async_block_till_done()
+    hub._tik()
+    assert hub.live["ap"] == [[0, 2000]]

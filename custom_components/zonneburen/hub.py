@@ -227,6 +227,10 @@ class ZonneburenHub:
             "imp_today": round(vandaag["imp"], 1), "exp_today": round(vandaag["exp"], 1),
             "chg_today": round(vandaag["chg"], 1), "dis_today": round(vandaag["dis"], 1),
         }.items() if v is not None}
+        # Terwijl iemand in de webapp kijkt ook het vermogen per apparaat, voor de grafiek "Nu".
+        if nu < self._kijken_tot:
+            self.live["ap"] = [[i, round(w)] for i, apparaat in enumerate(self._apparaten())
+                               if apparaat["enabled"] and apparaat["host"] and (w := self._vermogen(apparaat)) is not None]
 
         self.hass.async_create_task(self.ems.tik(net, bat, soc))
         self._volg_plan()
@@ -506,6 +510,8 @@ class ZonneburenHub:
                 regel["dimbaar"] = True
                 if (helderheid := staat.attributes.get("brightness")) is not None:
                     regel["dim"] = round(helderheid / 255 * 100)
+            if staat and (temperatuur := _temperatuur(staat)):
+                regel.update(temperatuur)
             lijst.append(regel)
         return {"rules": True, "blocked": False, "wijkActive": self.wijk_actief, "emergency": self.noodstop,
                 "question": self.vraag, "loads": lijst}
@@ -549,6 +555,8 @@ class ZonneburenHub:
             fout = await self._zet_stand(opdracht.get("i"), opdracht.get("modus"))
         elif actie == "dim":
             fout = await self._dim(opdracht.get("i"), opdracht.get("procent"))
+        elif actie == "temperatuur":
+            fout = await self._zet_temperatuur(opdracht.get("i"), opdracht.get("waarde"))
         elif actie == "wijkvraag":
             await self._beantwoord_wijkvraag(bool(opdracht.get("ja")))
         elif actie == "instellingen":
@@ -653,6 +661,29 @@ class ZonneburenHub:
         self.standen[i] = 1
         return None if await self._schakel(apparaten[i], True, procent) else "dimmen mislukt"
 
+    async def _zet_temperatuur(self, i, waarde) -> str | None:
+        """De gewenste temperatuur uit de webapp, binnen wat het apparaat zelf toestaat."""
+        apparaten = self._apparaten()
+        if not isinstance(i, int) or not 0 <= i < len(apparaten) or not apparaten[i]["enabled"]:
+            return "onbekend apparaat"
+        staat = self.hass.states.get(apparaten[i]["host"]) if apparaten[i]["host"] else None
+        grenzen = _temperatuur(staat) if staat else None
+        if not grenzen:
+            return "dit apparaat heeft geen instelbare temperatuur"
+        if not isinstance(waarde, (int, float)) or isinstance(waarde, bool) or not grenzen["tmin"] <= waarde <= grenzen["tmax"]:
+            return f"kies een temperatuur tussen {grenzen['tmin']:g} en {grenzen['tmax']:g} °C"
+        domein = staat.domain
+        try:
+            if domein in ("climate", "water_heater"):
+                await self.hass.services.async_call(domein, "set_temperature", {"entity_id": staat.entity_id, "temperature": waarde}, blocking=True)
+            else:
+                await self.hass.services.async_call(domein, "set_value", {"entity_id": staat.entity_id, "value": waarde}, blocking=True)
+        except Exception as fout:  # noqa: BLE001 - de service van een integratie kan van alles gooien
+            return f"instellen mislukt ({fout})"
+        self._log(INFO, f"{apparaten[i]['name'] or staat.entity_id}: temperatuur op {waarde:g} °C gezet vanuit de webapp")
+        self._volgende_info = 0
+        return None
+
     async def _beantwoord_wijkvraag(self, ja: bool) -> None:
         if not self.vraag:
             return
@@ -667,3 +698,29 @@ class ZonneburenHub:
 
 def _rond(waarde: float | None) -> float | None:
     return None if waarde is None else round(waarde)
+
+
+def _temperatuur(staat) -> dict | None:
+    """Huidige en gewenste temperatuur van een thermostaat, boiler of temperatuurgetal, met de grenzen.
+
+    None als het apparaat geen instelbare temperatuur heeft."""
+    a = staat.attributes
+    if staat.domain in ("climate", "water_heater"):
+        doel = a.get("temperature")
+        if not isinstance(doel, (int, float)):
+            return None
+        tmin, tmax = a.get("min_temp", 5), a.get("max_temp", 35 if staat.domain == "climate" else 80)
+        stap = a.get("target_temp_step") or (0.5 if staat.domain == "climate" else 1)
+        huidig = a.get("current_temperature")
+    elif staat.domain in ("number", "input_number") and a.get("unit_of_measurement") in ("°C", "°F"):
+        try:
+            doel = float(staat.state)
+        except ValueError:
+            return None
+        tmin, tmax, stap, huidig = a.get("min", 0), a.get("max", 100), a.get("step", 1), None
+    else:
+        return None
+    uit = {"doel": doel, "tmin": tmin, "tmax": tmax, "tstap": stap}
+    if isinstance(huidig, (int, float)):
+        uit["temp"] = huidig
+    return uit
