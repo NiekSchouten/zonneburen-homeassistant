@@ -147,7 +147,6 @@ def test_apparaat_id_is_herkenbaar_en_vast():
 
 
 def test_alleen_gewone_apparaten_uit_home_assistant():
-    p = protocol
     apparaten = p.normaliseer_apparaten([
         {"enabled": True, "name": "Voordeur", "type": 6, "host": "lock.voordeur"},
         {"enabled": True, "name": "Garage", "type": 6, "host": "cover.garagedeur", "powerEntity": "switch.iets"},
