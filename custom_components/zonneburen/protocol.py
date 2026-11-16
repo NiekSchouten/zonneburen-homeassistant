@@ -178,6 +178,16 @@ def entiteit_soort(entity_id: str, eenheid: str | None) -> int:
     return 2 if domein == "sensor" and eenheid in ("W", "kW", "%") else 0
 
 
+def mag_schakelen(entity_id: str | None) -> bool:
+    """Alleen gewone apparaten. Nooit een slot, garagedeur, alarm, camera of script: ook niet als de
+    webapp of de server zou worden overgenomen."""
+    return bool(entity_id) and entity_id.split(".", 1)[0] in STUURBARE_DOMEINEN
+
+
+def is_domein(entity_id: str | None, *domeinen: str) -> bool:
+    return bool(entity_id) and entity_id.split(".", 1)[0] in domeinen
+
+
 def leeg_apparaat() -> dict:
     return {
         "enabled": False, "name": "", "role": ROL_ANDERS, "type": 0, "host": "", "powerEntity": "",
@@ -199,6 +209,12 @@ def normaliseer_apparaten(apparaten: list | None) -> list[dict]:
                 apparaat[sleutel] = type(standaard)(waarde)
             elif isinstance(standaard, str) and isinstance(waarde, str):
                 apparaat[sleutel] = waarde[:64]
+        # Een apparaat uit Home Assistant mag alleen een gewone schakelaar, lamp, thermostaat of boiler zijn,
+        # en de vermogenssensor alleen een sensor. Al het andere wordt leeggemaakt.
+        if apparaat["type"] == SOORT_HOME_ASSISTANT and apparaat["host"] and not mag_schakelen(apparaat["host"]):
+            apparaat.update(host="", enabled=False)
+        if apparaat["powerEntity"] and not is_domein(apparaat["powerEntity"], "sensor"):
+            apparaat["powerEntity"] = ""
         uit.append(apparaat)
     return uit
 

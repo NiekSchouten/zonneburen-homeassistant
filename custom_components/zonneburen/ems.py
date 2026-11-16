@@ -272,7 +272,9 @@ class EmsUitvoerder:
         nu = time.time()
         uit = {"plan": self.plan is not None, "actief": self.mag_sturen(), "gestart": self.gestart,
                "stand": self.laatste.stand if self.laatste else ems_core.ZELFVERBRUIK,
-               "bron": self.laatste.bron if self.laatste else ems_core.TERUGVAL}
+               "bron": self.laatste.bron if self.laatste else ems_core.TERUGVAL,
+               # Voert Home Assistant de blokken voor apparaten uit? Daar is geen batterij voor nodig.
+               "apparaten": bool(self.opties.get(CONF_EMS_AAN) and self.opties.get(CONF_BEDIENING, True))}
         if self.pauze_tot > nu:
             uit["pauzeTot"] = int(self.pauze_tot)
         if self.geweigerd:
