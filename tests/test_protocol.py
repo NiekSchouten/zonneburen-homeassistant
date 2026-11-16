@@ -144,3 +144,16 @@ def test_vakken_uit_vijf_minuten():
 def test_apparaat_id_is_herkenbaar_en_vast():
     assert p.apparaat_id("abc") == p.apparaat_id("abc")
     assert p.apparaat_id("abc").startswith("ha-") and len(p.apparaat_id("abc")) == 19
+
+
+def test_alleen_gewone_apparaten_uit_home_assistant():
+    apparaten = p.normaliseer_apparaten([
+        {"enabled": True, "name": "Voordeur", "type": 6, "host": "lock.voordeur"},
+        {"enabled": True, "name": "Garage", "type": 6, "host": "cover.garagedeur", "powerEntity": "switch.iets"},
+        {"enabled": True, "name": "Boiler", "type": 6, "host": "switch.boiler", "powerEntity": "sensor.boiler_vermogen"},
+    ])
+    assert apparaten[0]["host"] == "" and not apparaten[0]["enabled"]
+    assert apparaten[1]["host"] == "" and apparaten[1]["powerEntity"] == ""
+    assert apparaten[2]["host"] == "switch.boiler" and apparaten[2]["powerEntity"] == "sensor.boiler_vermogen"
+    assert not p.mag_schakelen("alarm_control_panel.huis") and not p.mag_schakelen("script.alles_open")
+    assert p.mag_schakelen("climate.woonkamer")

@@ -74,6 +74,10 @@ NAAR_OPTIE = {
 # alleen in Home Assistant zelf aan, anders zet wie het account heeft zichzelf de deur open.
 JA_NEE = ("invertGrid", "invertBattery", "emsEnabled", "emsNetdoel", "haBatSetInvert", "ruleWijkAuto")
 GETALLEN = {"emsMaxLaadW": (0, 50000), "emsMaxOntlaadW": (0, 50000), "mainFuseA": (0, 80)}
+ENTITEIT_DOMEINEN = {
+    "haEntGrid": ("sensor",), "haEntPv": ("sensor",), "haEntBat": ("sensor",), "haEntSoc": ("sensor",), "haEntLoad": ("sensor",),
+    "haEntBatSet": ("number", "input_number"), "haEntBatMode": ("select", "input_select"),
+}
 
 
 class ZonneburenHub:
@@ -459,6 +463,9 @@ class ZonneburenHub:
 
     async def _schakel(self, apparaat: dict, aan: bool, dim: int | None = None, temp: float | None = None) -> bool:
         entiteit = apparaat["host"]
+        if not protocol.mag_schakelen(entiteit):
+            self._log(LET_OP, f"{entiteit}: dit soort entiteit schakelt Zonneburen nooit")
+            return False
         domein = entiteit.split(".", 1)[0]
         temperatuur = temp if temp is not None else apparaat["boostTemp"] if aan else apparaat["normalTemp"]
         try:
@@ -625,6 +632,11 @@ class ZonneburenHub:
                 return f"ongeldige waarde voor {sleutel}"
         if any(sleutel in waarden and not isinstance(waarden[sleutel], bool) for sleutel in JA_NEE):
             return "verwacht aan of uit"
+        # Alleen het soort entiteit dat bij de instelling hoort: sensoren lezen, de batterij via een getal of keuze.
+        for sleutel, domeinen in ENTITEIT_DOMEINEN.items():
+            waarde = waarden.get(sleutel)
+            if waarde and (not isinstance(waarde, str) or not protocol.is_domein(waarde, *domeinen)):
+                return f"{sleutel} moet een {' of '.join(domeinen)}-entiteit zijn"
 
         opties = dict(self.opties)
         overig = dict(opties.get(CONF_OVERIG, {}))

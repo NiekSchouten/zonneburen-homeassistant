@@ -245,3 +245,21 @@ async def test_live_stuurt_vermogen_per_apparaat_als_er_iemand_kijkt(hass, hub):
     await hass.async_block_till_done()
     hub._tik()
     assert hub.live["ap"] == [[0, 2000]]
+
+
+async def test_info_meldt_of_apparaten_het_energieplan_volgen(hass, hub):
+    assert hub.ems.info()["apparaten"] is False
+    hass.config_entries.async_update_entry(hub.entry, options={**hub.entry.options, "ems_aan": True})
+    assert hub.ems.info()["apparaten"] is True
+
+
+async def test_webapp_kan_geen_slot_of_alarm_aanwijzen(hass, hub):
+    assert "number" in hub._zet_instellingen({"haEntBatSet": "lock.voordeur"})
+    assert "sensor" in hub._zet_instellingen({"haEntGrid": "alarm_control_panel.huis"})
+    assert hub._zet_instellingen({"haEntGrid": "sensor.p1"}) is None
+
+
+async def test_schakel_weigert_een_slot_ook_als_het_in_de_opties_staat(hass, hub):
+    open_ = async_mock_service(hass, "homeassistant", "turn_on")
+    assert await hub._schakel({"host": "lock.voordeur", "name": "Voordeur", "boostTemp": 0, "normalTemp": 0}, True) is False
+    assert not open_
