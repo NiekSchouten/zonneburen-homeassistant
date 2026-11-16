@@ -263,3 +263,27 @@ async def test_schakel_weigert_een_slot_ook_als_het_in_de_opties_staat(hass, hub
     open_ = async_mock_service(hass, "homeassistant", "turn_on")
     assert await hub._schakel({"host": "lock.voordeur", "name": "Voordeur", "boostTemp": 0, "normalTemp": 0}, True) is False
     assert not open_
+
+
+async def test_sensor_per_apparaat_met_zijn_volgende_blok(hass, hub):
+    from homeassistant.helpers import entity_registry as er
+
+    hub._verwerk(protocol.huis_topic(ADRES, "hub/plan"),
+                 _plan_met([{"id": "boiler", "stand": "aanraden", "maxW": 2000, "van": 3600, "tot": 5400, "apparaat": 0,
+                             "actie": "aan", "reden": "voorverwarmen"}], [{"i": 0, "rust": "uit"}]))
+    await hass.async_block_till_done()
+
+    register = er.async_get(hass)
+    staat = hass.states.get(register.async_get_entity_id("sensor", DOMAIN, f"{hub.hub_id}_plan_apparaat_0"))
+    assert staat is not None and staat.state.startswith("Voorverwarmen ")
+    assert staat.attributes["blokken"][0]["naam"] == "Boiler"
+    plan = hass.states.get(register.async_get_entity_id("sensor", DOMAIN, f"{hub.hub_id}_energieplan"))
+    assert plan.attributes["apparaatblokken"][0]["naam"] == "Boiler"
+
+
+async def test_kaarten_en_paneel_zonder_frontend_geen_fout(hass, hub):
+    # In de tests draait geen frontend: dan registreert de integratie niets en gaat alles gewoon door.
+    from custom_components.zonneburen import paneel
+
+    await paneel.registreer(hass)
+    assert not hass.data.get("zonneburen_frontend")

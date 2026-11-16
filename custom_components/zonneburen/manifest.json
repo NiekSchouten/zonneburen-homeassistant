@@ -1,13 +1,22 @@
 {
   "domain": "zonneburen",
   "name": "Zonneburen",
-  "after_dependencies": ["recorder"],
-  "codeowners": ["@NiekSchouten"],
+  "after_dependencies": [
+    "frontend",
+    "http",
+    "panel_custom",
+    "recorder"
+  ],
+  "codeowners": [
+    "@NiekSchouten"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/NiekSchouten/zonneburen-homeassistant",
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/NiekSchouten/zonneburen-homeassistant/issues",
-  "requirements": ["paho-mqtt>=2.1.0"],
-  "version": "0.4.2"
+  "requirements": [
+    "paho-mqtt>=2.1.0"
+  ],
+  "version": "0.5.0"
 }

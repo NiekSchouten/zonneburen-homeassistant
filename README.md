@@ -86,8 +86,8 @@ hij duur is. Home Assistant voert dat plan uit en stuurt elke vijf seconden bij 
    de stand-entiteit en vul de standen voor *sturen* en *terugzetten* in.
 5. Vink **Energieplan uitvoeren** aan en sla op.
 
-Je krijgt er een sensor **Energieplan** bij (wat de batterij nu doet, met de komende blokken als
-attributen), **Verwachte besparing**, een schakelaar **Energieplan uitvoeren** en knoppen om twee uur
+Je krijgt er een sensor **Energieplan** bij (wat de batterij nu doet, met de komende blokken voor de
+batterij en de apparaten als attributen), **Verwachte besparing**, een schakelaar **Energieplan uitvoeren** en knoppen om twee uur
 te pauzeren of te hervatten.
 
 **Altijd veilig.** Zonder geldig plan, bij een pauze, een noodstop of als je netsensor langer dan
@@ -111,6 +111,32 @@ de auto, de boiler, de warmtepomp, een airco, elektrische verwarming, witgoed en
 Bij een thermostaat of boiler zet het plan de temperatuur even hoger of lager; daarna gaat hij terug
 naar de normale temperatuur uit Apparaten. Wat je zelf op *Handmatig* zet en de noodstop gaan altijd
 voor. Bij een pauze of zonder geldig plan doen de apparaten weer wat ze normaal doen.
+
+## 5. Het energieplan in Home Assistant bekijken (ook zonder internet)
+
+Vanaf 0.5.0 staat er in de zijbalk een paneel **Energieplan**. Je hoeft er niets voor in te stellen.
+Je ziet:
+
+- wat je batterij de komende 36 uur doet, met de prijs per kwartier en de verwachte lading;
+- wanneer elk apparaat aan gaat, met een baan per apparaat;
+- per apparaat een tegel met zijn volgende blok.
+
+Het plan staat in Home Assistant zelf. Valt het internet weg, dan voert Home Assistant het plan
+gewoon uit tot het afloopt, en het paneel blijft het tonen.
+
+Wil je het plan liever in je eigen dashboard? De kaarten zitten in de integratie en zijn meteen
+beschikbaar, zonder resource toe te voegen:
+
+```yaml
+type: custom:zonneburen-energieplan-card
+entity: sensor.zonneburen_de_kreekrug_9_energieplan
+```
+
+Per apparaat in het plan krijg je ook een sensor, bijvoorbeeld *Energieplan Laadpaal*, met als
+waarde *Laden morgen 02:15–04:30*. Daar kun je automatiseringen of meldingen op bouwen.
+
+Had je de kaart eerder als resource toegevoegd vanaf zonopzwaagdijk.nl? Die mag weg: de versie uit de
+integratie werkt ook zonder internet.
 
 ## Bijwerken
 
