@@ -278,3 +278,46 @@ def blokken(plan: Plan, nu: float, maximaal: int = 6) -> list[dict]:
                 break
             uit.append({"stand": k.stand, "van": van, "tot": van + plan.stap, "zin": ZINNEN[k.stand]})
     return uit
+
+
+BLOK_ZINNEN = {"laden": "Laden", "aan": "Aan", "aanraden": "Voorverwarmen", "blokkeren": "Pauze"}
+REDEN_ZINNEN = {"voorverwarmen": "Voorverwarmen", "voorkoelen": "Voorkoelen", "pauze": "Pauze, stroom is nu duur"}
+
+
+def blok_zin(blok: dict) -> str:
+    """Wat een apparaat in een blok doet, in woorden: "Voorverwarmen tot 55 °C"."""
+    zin = REDEN_ZINNEN.get(blok.get("reden", "")) or BLOK_ZINNEN.get(blok.get("stand", "")) or ("Aan" if blok.get("actie") == "aan" else "Uit")
+    if blok.get("temp") is not None:
+        zin += f" ({blok['temp']:g} °C)"
+    elif blok.get("actie") == "uit" and zin == "Pauze, stroom is nu duur":
+        zin = "Uit, stroom is nu duur"
+    return zin
+
+
+def apparaat_blokken(plan: Plan | None, nu: float, namen: dict[int, str] | None = None, index: int | None = None,
+                     maximaal: int = 24) -> list[dict]:
+    """De blokken voor apparaten die nog lopen of nog komen, op volgorde: voor de sensoren en de kaart.
+    Ook blokken zonder apparaat (alleen advies) staan erin, met i = None."""
+    if plan is None or nu >= plan.geldig_tot:
+        return []
+    namen = namen or {}
+    uit: list[dict] = []
+    for last in plan.lasten:
+        i = last.get("apparaat")
+        if isinstance(i, bool) or not isinstance(i, int):
+            i = None
+        if index is not None and i != index:
+            continue
+        van, tot = int(_getal(last.get("van"), 0)), int(min(_getal(last.get("tot"), 0), plan.geldig_tot))
+        if tot <= nu or tot <= van:
+            continue
+        blok = {"i": i, "naam": (namen.get(i) if i is not None else None) or str(last.get("naam") or last.get("id") or "Apparaat")[:40],
+                "van": van, "tot": tot, "stand": str(last.get("stand", ""))[:20], "actie": last.get("actie") if i is not None else None}
+        if (temp := _getal(last.get("temp"))) is not None:
+            blok["temp"] = temp
+        if last.get("reden"):
+            blok["reden"] = str(last["reden"])[:20]
+        blok["zin"] = blok_zin(blok)
+        uit.append(blok)
+    uit.sort(key=lambda b: (b["van"], b["i"] if b["i"] is not None else 99))
+    return uit[:maximaal]
