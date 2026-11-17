@@ -7,8 +7,8 @@
 Maak van je Home Assistant de hub van je huis in de energiewijk Zonneburen. Je hebt dan geen
 Zonneburen Link nodig: Home Assistant doet hetzelfde, met alles wat het al van je huis weet.
 
-**In het kort:** installeren via de Marketplace → koppelcode uit de webapp invullen → je
-slimme-metersensor kiezen. Klaar in vijf minuten.
+**In het kort:** installeren via de Marketplace → koppelcode uit de webapp invullen → controleren
+wat Home Assistant zelf heeft gevonden. Klaar in vijf minuten.
 
 ## Wat het doet
 
@@ -25,8 +25,8 @@ slimme-metersensor kiezen. Klaar in vijf minuten.
 
 - Home Assistant **2026.3 of nieuwer** (oudere versies werken vanaf 2024.12, maar tonen het logo niet).
 - Een account in de Zonneburen-webapp.
-- Een sensor in Home Assistant met het vermogen van je slimme meter (in W), bijvoorbeeld van een
-  P1-meter, HomeWizard of je omvormer.
+- Je slimme meter in Home Assistant, bijvoorbeeld via HomeWizard, DSMR, P1 Monitor, SlimmeLezer of
+  je omvormer.
 
 ## 1. Installeren
 
@@ -60,18 +60,41 @@ toevoegen** en kies **Zonneburen**.
 
 1. **Koppelcode.** Maak in de webapp bij **Mijn hub** een koppelcode aan en vul die in. Het adres
    van de webapp laat je staan.
-2. **Sensoren.** Kies bij **Net** de sensor van je slimme meter. Die moet positief zijn als je stroom
-   afneemt; is het bij jou andersom, vink dan *Teken van het net omdraaien* aan. Zon, batterij en
-   verbruik zijn optioneel en maken de grafieken in de webapp vollediger.
+2. **Je meters.** Home Assistant zoekt zelf je slimme meter, zonnepanelen en thuisbatterij, en laat
+   zien wat ze nu meten, bijvoorbeeld *Net: nu 350 W afname*. Klopt het? Klik op **Verzenden**.
+3. **Apparaten.** Gevonden warmtepompen, boilers, laadpalen en airco's staan in een lijst. Vink aan
+   wat mag meedoen als de wijk stroom over heeft. Er verandert niets aan hoe ze nu staan.
+4. **Thuisbatterij.** Kan Home Assistant je batterij sturen, dan zie je hoe, en hoef je alleen
+   *Ja, laat Zonneburen mijn batterij sturen* aan te vinken. Heeft je batterij een stand voor
+   externe sturing, dan zijn die standen al voorgekozen.
 
-Dat is alles. Onder het apparaat **Zonneburen** zie je nu of je verbonden bent, of er wijkstroom loopt,
-het overschot in de wijk, de beursprijs en wat je deze week deelde.
+Stappen waarvoor niets gevonden is, slaat Home Assistant over. Onder het apparaat **Zonneburen** zie
+je daarna of je verbonden bent, of er wijkstroom loopt, het overschot in de wijk, de beursprijs en
+wat je deze week deelde.
+
+<details>
+<summary>Waar zoekt Home Assistant?</summary>
+
+1. **Het Energie-dashboard.** Heb je daar bij je net, zon en batterij een vermogenssensor ingesteld,
+   dan neemt Zonneburen die over, met het goede teken.
+2. **Bekende merken**, zoals HomeWizard, DSMR, P1 Monitor, Enphase, SolarEdge, Victron, Huawei,
+   Marstek, Quatt, Alfen en Easee.
+3. **De naam van de sensor**, het liefst op hetzelfde apparaat als de meters uit het Energie-dashboard.
+
+Batterijen worden op drie manieren gestuurd: met één vermogen (positief ontladen, negatief laden),
+met een netdoel (zoals het grid setpoint van een Victron ESS), of met aparte getallen voor laden en
+ontladen plus een keuze voor de richting (zoals Marstek en SolarEdge).
+
+Herkent Home Assistant iets niet goed, kies het dan zelf: alle velden blijven gewoon aan te passen.
+
+</details>
 
 > **Let op:** draait er nog een Zonneburen Link of de oude Zonneburen-blueprint? Zet die dan uit (de
 > blueprint onder **Instellingen → Automatiseringen en scènes**). Twee zenders op één adres tellen je
 > verbruik dubbel; Home Assistant waarschuwt je als dat gebeurt.
 
-Wil je later iets aanpassen? Kies bij de integratie **Configureren**.
+Wil je later iets aanpassen of een nieuw apparaat toevoegen? Kies bij de integratie **Configureren**.
+Je krijgt dan een menu: *Meters*, *Apparaten zoeken* en *Thuisbatterij laten sturen*.
 
 ## 3. Energieplan voor je batterij (optioneel)
 
@@ -79,12 +102,12 @@ De server maakt elk kwartier een plan voor je batterij: laden als stroom goedkoo
 hij duur is. Home Assistant voert dat plan uit en stuurt elke vijf seconden bij op je slimme meter.
 
 1. Zet in de webapp bij **Energieplan** de stand op **Sturen**.
-2. Kies in Home Assistant bij Zonneburen **Configureren** en klap **Energieplan** open.
-3. Kies bij **Entiteit die het batterijvermogen instelt** de getal-entiteit (W) van je
-   batterij-integratie. Onder elk veld staat wat het betekent.
-4. Moet je batterij eerst in een stand voor externe sturing (veel omvormers hebben dat), kies dan ook
-   de stand-entiteit en vul de standen voor *sturen* en *terugzetten* in.
-5. Vink **Energieplan uitvoeren** aan en sla op.
+2. Heb je dat bij het koppelen nog niet gedaan: kies in Home Assistant bij Zonneburen **Configureren →
+   Thuisbatterij laten sturen**.
+3. Vink **Ja, laat Zonneburen mijn batterij sturen** aan en klik op **Verzenden**.
+
+Home Assistant heeft de entiteiten van je batterij al ingevuld. Wil je ze zien of aanpassen, klap dan
+**Details** open; onder elk veld staat wat het betekent.
 
 Je krijgt er een sensor **Energieplan** bij (wat de batterij nu doet, met de komende blokken voor de
 batterij en de apparaten als attributen), **Verwachte besparing**, een schakelaar **Energieplan uitvoeren** en knoppen om twee uur
@@ -100,8 +123,8 @@ EMHASS, evcc of een ander energiebeheer, dan krijg je een melding: twee regelaar
 Vanaf 0.4.0 zet het energieplan ook je apparaten op het goedkoopste moment of op je eigen zon aan:
 de auto, de boiler, de warmtepomp, een airco, elektrische verwarming, witgoed en een zwembadpomp.
 
-1. Voeg het apparaat toe in de webapp bij **Apparaten** (een schakelaar, thermostaat of boiler uit
-   Home Assistant).
+1. Vink het apparaat aan bij het koppelen of onder **Configureren → Apparaten zoeken**, of voeg het
+   toe in de webapp bij **Apparaten** (een schakelaar, thermostaat of boiler uit Home Assistant).
 2. Kies het in de webapp bij **Energieplan → Instellen → Apparaten in het plan**, en vul in wanneer
    het klaar moet zijn. Onder *Meer instellingen* staan onder andere een prijsgrens, weekdagen, een
    minimale looptijd en comfortgrenzen voor de warmtepomp.
@@ -151,6 +174,8 @@ Assistant geen firmware aan.
 | *Verbonden met Zonneburen* staat uit | Controleer je internet; de integratie verbindt zelf opnieuw. |
 | Verbruik in de webapp is dubbel of raar | Zet de Zonneburen Link of de oude blueprint uit, en controleer het teken van je netsensor. |
 | Batterij doet niets | Staat *Energieplan uitvoeren* aan en staat de webapp op *Sturen*? Kijk in de sensor *Energieplan*. |
+| Batterij laadt als hij moet ontladen | Kies **Configureren → Thuisbatterij laten sturen**, klap *Details* open en vink *Positief getal betekent laden* aan of uit. |
+| Meter of apparaat niet gevonden | Kies het zelf onder **Configureren**, of in de webapp bij *Apparaten*. |
 | Geen logo te zien | Werk Home Assistant bij naar 2026.3 of nieuwer. |
 
 Kom je er niet uit? Kies bij de integratie **⋮ → Diagnose downloaden** en stuur dat bestand mee met je

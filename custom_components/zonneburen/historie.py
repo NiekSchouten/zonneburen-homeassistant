@@ -11,9 +11,9 @@ from datetime import datetime
 from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_BATTERIJ, CONF_BATTERIJ_OM, CONF_NET, CONF_NET_OM, CONF_SOC, CONF_VERBRUIK, CONF_ZON
+from .const import CONF_BATTERIJ, CONF_BATTERIJ_OM, CONF_NET, CONF_NET_OM, CONF_NET_TERUG, CONF_SOC, CONF_VERBRUIK, CONF_ZON
 
-VELD_VAN = {CONF_NET: "net", CONF_ZON: "pv", CONF_BATTERIJ: "bat", CONF_SOC: "soc", CONF_VERBRUIK: "load"}
+VELD_VAN = {CONF_NET: "net", CONF_NET_TERUG: "terug", CONF_ZON: "pv", CONF_BATTERIJ: "bat", CONF_SOC: "soc", CONF_VERBRUIK: "load"}
 
 
 async def lees(hass: HomeAssistant, opties: dict, start: datetime, eind: datetime, periode: str) -> list[tuple[float, dict[str, float]]]:
@@ -42,4 +42,13 @@ async def lees(hass: HomeAssistant, opties: dict, start: datetime, eind: datetim
             if (veld == "net" and opties.get(CONF_NET_OM)) or (veld == "bat" and opties.get(CONF_BATTERIJ_OM)):
                 waarde = -waarde
             per_tijd.setdefault(tijd, {})[veld] = waarde
-    return sorted(per_tijd.items())
+    # Afname en teruglevering apart (DSMR): het net is het verschil, en alleen als beide er zijn.
+    if opties.get(CONF_NET_TERUG):
+        for velden in per_tijd.values():
+            terug = velden.pop("terug", None)
+            if "net" in velden:
+                if terug is None:
+                    del velden["net"]
+                else:
+                    velden["net"] -= terug
+    return sorted((tijd, velden) for tijd, velden in per_tijd.items() if velden)

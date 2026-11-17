@@ -117,3 +117,27 @@ async def test_sensoren_van_het_plan(hass, hub):
     assert plan.attributes["blokken"][0]["stand"] == "netladen" and plan.attributes["kwartieren"]
     besparing = hass.states.get(register.async_get_entity_id("sensor", DOMAIN, f"{hub.hub_id}_verwachte_besparing"))
     assert float(besparing.state) == VOORBEELD["verwacht"]["besparingBatterij"]
+
+
+async def test_laden_en_ontladen_apart_met_richting_en_schakelaar(hass, hub):
+    """Zoals een Marstek: aparte getallen voor laden en ontladen, een keuze voor de richting en RS485 aan."""
+    hass.states.async_set("number.laden", "0", {"unit_of_measurement": "W", "min": 0, "max": 2500})
+    hass.states.async_set("number.ontladen", "0", {"unit_of_measurement": "W", "min": 0, "max": 2500})
+    hass.states.async_set("select.richting", "Stop", {"options": ["Stop", "Charge", "Discharge"]})
+    hass.states.async_set("switch.rs485", "off")
+    getallen = async_mock_service(hass, "number", "set_value")
+    keuzes = async_mock_service(hass, "select", "select_option")
+    aan = async_mock_service(hass, "switch", "turn_on")
+    hass.config_entries.async_update_entry(hub.entry, options={
+        **hub.opties, "ems_vermogen": "number.laden", "ems_ontlaad": "number.ontladen", "ems_modus": "switch.rs485",
+        "ems_richting": "select.richting", "ems_richting_laden": "Charge", "ems_richting_ontladen": "Discharge",
+        "ems_richting_stop": "Stop"})
+    hub._verwerk(protocol.huis_topic(ADRES, "hub/plan"), plan_vanaf_nu())
+
+    await hub.ems.tik(300, 0, 40)
+
+    assert aan[-1].data == {"entity_id": "switch.rs485"}
+    assert keuzes[-1].data == {"entity_id": "select.richting", "option": "Charge"}
+    geschreven = [c.data for c in getallen]
+    # Eerst het ontladen op 0, dan laden; het plan vraagt 3000 W maar deze batterij kan 2500 W.
+    assert geschreven.index({"entity_id": "number.ontladen", "value": 0}) < geschreven.index({"entity_id": "number.laden", "value": 2500})

@@ -2,6 +2,7 @@
   "domain": "zonneburen",
   "name": "Zonneburen",
   "after_dependencies": [
+    "energy",
     "frontend",
     "http",
     "panel_custom",
@@ -18,5 +19,5 @@
   "requirements": [
     "paho-mqtt>=2.1.0"
   ],
-  "version": "0.5.0"
+  "version": "0.6.0"
 }

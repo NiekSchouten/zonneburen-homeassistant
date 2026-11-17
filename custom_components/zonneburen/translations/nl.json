@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Stap 1 van 2: koppelen met Zonneburen",
+        "title": "Stap 1: koppelen met Zonneburen",
         "description": "Open de Zonneburen-webapp, ga naar **Mijn hub** en maak een koppelcode aan. Vul die code hier in.",
         "data": {
           "server": "Adres van de webapp",
@@ -14,10 +14,11 @@
         }
       },
       "sensoren": {
-        "title": "Stap 2 van 2: jouw sensoren",
-        "description": "Gekoppeld met **{adres}**.\n\nKies de sensoren die Home Assistant al van je huis kent. Alleen **Net** is verplicht; de rest maakt de grafieken in de webapp vollediger. Je kunt dit later altijd aanpassen via **Configureren**.",
+        "title": "Stap 2: je meters",
+        "description": "Gekoppeld met **{adres}**.\n\nHome Assistant heeft zelf gezocht. Dit meet het nu:\n\n{gevonden}\n\nKlopt dit? Klik dan gewoon op **Verzenden**. Staat er *teruglevering* terwijl je stroom afneemt (of *laden* terwijl je batterij ontlaadt), vink dan het omdraaien aan.",
         "data": {
-          "net": "Net",
+          "net": "Slimme meter (net)",
+          "net_terug": "Teruglevering (alleen bij een aparte sensor)",
           "net_omdraaien": "Teken van het net omdraaien",
           "zon": "Zonnepanelen (optioneel)",
           "batterij": "Thuisbatterij (optioneel)",
@@ -28,15 +29,71 @@
           "bediening": "Bediening vanuit de webapp toestaan"
         },
         "data_description": {
-          "net": "Het vermogen (W) van je slimme meter. Hoort positief te zijn als je stroom afneemt en negatief als je teruglevert.",
-          "net_omdraaien": "Aanvinken als je meter het andersom doet: positief bij teruglevering.",
-          "zon": "Het vermogen dat je zonnepanelen nu opwekken.",
-          "batterij": "Het vermogen van je thuisbatterij. Hoort positief te zijn bij ontladen.",
-          "batterij_omdraaien": "Aanvinken als je batterij positief meldt bij laden.",
+          "net": "Het vermogen van je slimme meter, positief bij afname. Heeft je meter afname en teruglevering apart (zoals DSMR), kies hier de afname.",
+          "net_terug": "Alleen invullen als je meter teruglevering in een eigen sensor heeft. Zonneburen rekent dan afname min teruglevering.",
+          "net_omdraaien": "Aanvinken als je meter positief geeft bij teruglevering.",
+          "zon": "Wat je zonnepanelen nu opwekken.",
+          "batterij": "Het vermogen van je thuisbatterij, positief bij ontladen.",
+          "batterij_omdraaien": "Aanvinken als je batterij positief geeft bij laden.",
           "soc": "Hoe vol de batterij is, in procent.",
-          "verbruik": "Wat je hele huis nu gebruikt.",
-          "wijk_automatisch": "Heeft de wijk stroom over, dan zet Home Assistant je gekozen apparaten (boiler, laadpaal) vanzelf aan. Uit: je krijgt eerst een melding om te bevestigen.",
+          "verbruik": "Leeg laten mag: dan rekent Zonneburen het zelf uit.",
+          "wijk_automatisch": "Heeft de wijk stroom over, dan zet Home Assistant je gekozen apparaten vanzelf aan. Uit: je krijgt eerst een melding om te bevestigen.",
           "bediening": "Laat je vanuit de webapp apparaten in Home Assistant aan- en uitzetten."
+        }
+      },
+      "apparaten": {
+        "title": "Stap 3: apparaten",
+        "description": "Deze apparaten kan Zonneburen aanzetten als de wijk stroom over heeft, of als het energieplan het goedkoopste moment kiest. Vink aan wat mag meedoen.\n\nEr verandert niets aan hoe ze nu staan. Een warmtepomp gaat bij wijkstroom 1 graad hoger, een boiler 10 graden. In de webapp bij **Apparaten** pas je dit later aan.",
+        "data": {
+          "kies": "Meedoen met Zonneburen"
+        }
+      },
+      "batterij": {
+        "title": "Stap 4: thuisbatterij",
+        "description": "{uitleg}\n\nZet je batterij aan, dan laadt hij als stroom goedkoop is en ontlaadt hij als stroom duur is, volgens het energieplan uit de webapp. Zet daarvoor in de webapp bij **Energieplan** de stand op **Sturen**. Je kunt dit altijd weer uitzetten met de schakelaar *Energieplan uitvoeren*.",
+        "data": {
+          "ems_aan": "Ja, laat Zonneburen mijn batterij sturen"
+        },
+        "sections": {
+          "details": {
+            "name": "Details (automatisch ingevuld)",
+            "description": "Alleen nodig als de batterij niet goed herkend is.",
+            "data": {
+              "ems_vermogen": "Vermogen van de batterij (of laadvermogen)",
+              "ems_ontlaad": "Ontlaadvermogen (alleen bij een apart getal)",
+              "ems_netdoel": "Dit is een netdoel",
+              "ems_laden_positief": "Positief getal betekent laden",
+              "ems_modus": "Stand voor externe sturing (optioneel)",
+              "ems_richting": "Keuze voor laden of ontladen (optioneel)",
+              "ems_max_laad_w": "Laden hooguit (optioneel)",
+              "ems_max_ontlaad_w": "Ontladen hooguit (optioneel)",
+              "ems_zekering_a": "Hoofdzekering (optioneel)"
+            },
+            "data_description": {
+              "ems_vermogen": "Het getal (W) waarmee je batterij-integratie het vermogen instelt. Positief is ontladen, tenzij je het hieronder omdraait.",
+              "ems_ontlaad": "Heeft je batterij aparte getallen voor laden en ontladen (zoals Marstek), kies hier het ontlaadgetal en hierboven het laadgetal.",
+              "ems_netdoel": "Aanvinken als het getal het gewenste vermogen op het net instelt, zoals het grid setpoint van een Victron ESS.",
+              "ems_modus": "Een keuze of schakelaar die de batterij eerst op extern sturen zet. De standen kies je in de volgende stap.",
+              "ems_richting": "Een keuze met opties voor laden, ontladen en stoppen.",
+              "ems_max_laad_w": "In watt. Leeg of 0: het maximum uit het plan.",
+              "ems_max_ontlaad_w": "In watt. Leeg of 0: het maximum uit het plan.",
+              "ems_zekering_a": "In ampère. De batterij laadt minder hard zodra een fase in de buurt van deze waarde komt."
+            }
+          }
+        }
+      },
+      "standen": {
+        "title": "Standen van de batterij",
+        "description": "Zonneburen heeft de standen al voorgekozen. Klopt het, klik dan op **Verzenden**.",
+        "data": {
+          "ems_modus_sturen": "Stand om extern te sturen",
+          "ems_modus_terug": "Stand om terug te zetten",
+          "ems_richting_laden": "Optie om te laden",
+          "ems_richting_ontladen": "Optie om te ontladen",
+          "ems_richting_stop": "Optie om te stoppen"
+        },
+        "data_description": {
+          "ems_modus_terug": "De stand waarin de batterij zichzelf weer regelt."
         }
       }
     },
@@ -45,7 +102,8 @@
       "niet_toegestaan": "De server weigert deze koppeling. Vraag het bestuur van je wijk om hulp.",
       "te_vaak": "Te veel pogingen. Probeer het over een kwartier opnieuw.",
       "niet_bereikbaar": "De webapp is niet bereikbaar. Controleer het adres en je internetverbinding.",
-      "geen_https": "Het adres moet met https:// beginnen."
+      "geen_https": "Het adres moet met https:// beginnen.",
+      "geen_vermogen": "Kies onder Details het getal waarmee je batterij wordt gestuurd."
     },
     "abort": {
       "already_configured": "Dit huis is al gekoppeld."
@@ -55,9 +113,19 @@
     "step": {
       "init": {
         "title": "Zonneburen instellen",
-        "description": "Pas je sensoren aan, of klap **Energieplan** open om je thuisbatterij te laten sturen.",
+        "description": "Wat wil je aanpassen?",
+        "menu_options": {
+          "sensoren": "Meters (net, zon, batterij)",
+          "apparaten": "Apparaten zoeken (warmtepomp, boiler, laadpaal)",
+          "batterij": "Thuisbatterij laten sturen"
+        }
+      },
+      "sensoren": {
+        "title": "Je meters",
+        "description": "Home Assistant heeft zelf gezocht. Dit meet het nu:\n\n{gevonden}\n\nKlopt dit? Klik dan gewoon op **Verzenden**. Staat er *teruglevering* terwijl je stroom afneemt (of *laden* terwijl je batterij ontlaadt), vink dan het omdraaien aan.",
         "data": {
-          "net": "Net",
+          "net": "Slimme meter (net)",
+          "net_terug": "Teruglevering (alleen bij een aparte sensor)",
           "net_omdraaien": "Teken van het net omdraaien",
           "zon": "Zonnepanelen (optioneel)",
           "batterij": "Thuisbatterij (optioneel)",
@@ -68,47 +136,79 @@
           "bediening": "Bediening vanuit de webapp toestaan"
         },
         "data_description": {
-          "net": "Het vermogen (W) van je slimme meter. Hoort positief te zijn als je stroom afneemt en negatief als je teruglevert.",
-          "net_omdraaien": "Aanvinken als je meter het andersom doet: positief bij teruglevering.",
-          "zon": "Het vermogen dat je zonnepanelen nu opwekken.",
-          "batterij": "Het vermogen van je thuisbatterij. Hoort positief te zijn bij ontladen.",
-          "batterij_omdraaien": "Aanvinken als je batterij positief meldt bij laden.",
+          "net": "Het vermogen van je slimme meter, positief bij afname. Heeft je meter afname en teruglevering apart (zoals DSMR), kies hier de afname.",
+          "net_terug": "Alleen invullen als je meter teruglevering in een eigen sensor heeft. Zonneburen rekent dan afname min teruglevering.",
+          "net_omdraaien": "Aanvinken als je meter positief geeft bij teruglevering.",
+          "zon": "Wat je zonnepanelen nu opwekken.",
+          "batterij": "Het vermogen van je thuisbatterij, positief bij ontladen.",
+          "batterij_omdraaien": "Aanvinken als je batterij positief geeft bij laden.",
           "soc": "Hoe vol de batterij is, in procent.",
-          "verbruik": "Wat je hele huis nu gebruikt.",
-          "wijk_automatisch": "Heeft de wijk stroom over, dan zet Home Assistant je gekozen apparaten (boiler, laadpaal) vanzelf aan. Uit: je krijgt eerst een melding om te bevestigen.",
+          "verbruik": "Leeg laten mag: dan rekent Zonneburen het zelf uit.",
+          "wijk_automatisch": "Heeft de wijk stroom over, dan zet Home Assistant je gekozen apparaten vanzelf aan. Uit: je krijgt eerst een melding om te bevestigen.",
           "bediening": "Laat je vanuit de webapp apparaten in Home Assistant aan- en uitzetten."
+        }
+      },
+      "apparaten": {
+        "title": "Apparaten zoeken",
+        "description": "Deze apparaten kan Zonneburen aanzetten als de wijk stroom over heeft, of als het energieplan het goedkoopste moment kiest. Vink aan wat mag meedoen.\n\nEr verandert niets aan hoe ze nu staan. Een warmtepomp gaat bij wijkstroom 1 graad hoger, een boiler 10 graden. In de webapp bij **Apparaten** pas je dit later aan.",
+        "data": {
+          "kies": "Meedoen met Zonneburen"
+        }
+      },
+      "batterij": {
+        "title": "Thuisbatterij",
+        "description": "{uitleg}\n\nZet je batterij aan, dan laadt hij als stroom goedkoop is en ontlaadt hij als stroom duur is, volgens het energieplan uit de webapp. Zet daarvoor in de webapp bij **Energieplan** de stand op **Sturen**. Je kunt dit altijd weer uitzetten met de schakelaar *Energieplan uitvoeren*.",
+        "data": {
+          "ems_aan": "Ja, laat Zonneburen mijn batterij sturen"
         },
         "sections": {
-          "energieplan": {
-            "name": "Energieplan (thuisbatterij sturen)",
-            "description": "Zet eerst in de webapp bij **Energieplan** de stand op **Sturen**. Kies hier daarna hoe Home Assistant je batterij aanstuurt.",
+          "details": {
+            "name": "Details (automatisch ingevuld)",
+            "description": "Alleen nodig als de batterij niet goed herkend is.",
             "data": {
-              "ems_aan": "Energieplan uitvoeren",
-              "ems_vermogen": "Entiteit die het batterijvermogen instelt",
-              "ems_netdoel": "Deze entiteit is een netdoel",
+              "ems_vermogen": "Vermogen van de batterij (of laadvermogen)",
+              "ems_ontlaad": "Ontlaadvermogen (alleen bij een apart getal)",
+              "ems_netdoel": "Dit is een netdoel",
               "ems_laden_positief": "Positief getal betekent laden",
-              "ems_modus": "Entiteit voor de stand van de batterij (optioneel)",
-              "ems_modus_sturen": "Stand om extern te sturen",
-              "ems_modus_terug": "Stand om terug te zetten",
+              "ems_modus": "Stand voor externe sturing (optioneel)",
+              "ems_richting": "Keuze voor laden of ontladen (optioneel)",
               "ems_max_laad_w": "Laden hooguit (optioneel)",
               "ems_max_ontlaad_w": "Ontladen hooguit (optioneel)",
               "ems_zekering_a": "Hoofdzekering (optioneel)"
             },
             "data_description": {
-              "ems_aan": "Hoofdschakelaar. Je kunt dit ook later aan- en uitzetten met de schakelaar Energieplan uitvoeren.",
-              "ems_vermogen": "Een getal-entiteit (W) van je batterij-integratie, bijvoorbeeld het laad-/ontlaadvermogen. Positief is ontladen.",
-              "ems_netdoel": "Aanvinken als deze entiteit niet het batterijvermogen, maar het gewenste vermogen op het net instelt, zoals het grid setpoint van een Victron ESS.",
-              "ems_laden_positief": "Aanvinken als deze entiteit laden met een positief getal aangeeft.",
-              "ems_modus": "Alleen nodig als je batterij eerst in een stand voor externe sturing moet.",
-              "ems_modus_sturen": "Precies zoals de optie in de lijst heet, bijvoorbeeld Remote control. Leeg laten als het niet nodig is.",
-              "ems_modus_terug": "De stand waarin de batterij zichzelf weer regelt, bijvoorbeeld Self consumption.",
+              "ems_vermogen": "Het getal (W) waarmee je batterij-integratie het vermogen instelt. Positief is ontladen, tenzij je het hieronder omdraait.",
+              "ems_ontlaad": "Heeft je batterij aparte getallen voor laden en ontladen (zoals Marstek), kies hier het ontlaadgetal en hierboven het laadgetal.",
+              "ems_netdoel": "Aanvinken als het getal het gewenste vermogen op het net instelt, zoals het grid setpoint van een Victron ESS.",
+              "ems_modus": "Een keuze of schakelaar die de batterij eerst op extern sturen zet. De standen kies je in de volgende stap.",
+              "ems_richting": "Een keuze met opties voor laden, ontladen en stoppen.",
               "ems_max_laad_w": "In watt. Leeg of 0: het maximum uit het plan.",
               "ems_max_ontlaad_w": "In watt. Leeg of 0: het maximum uit het plan.",
               "ems_zekering_a": "In ampère. De batterij laadt minder hard zodra een fase in de buurt van deze waarde komt."
             }
           }
         }
+      },
+      "standen": {
+        "title": "Standen van de batterij",
+        "description": "Zonneburen heeft de standen al voorgekozen. Klopt het, klik dan op **Verzenden**.",
+        "data": {
+          "ems_modus_sturen": "Stand om extern te sturen",
+          "ems_modus_terug": "Stand om terug te zetten",
+          "ems_richting_laden": "Optie om te laden",
+          "ems_richting_ontladen": "Optie om te ontladen",
+          "ems_richting_stop": "Optie om te stoppen"
+        },
+        "data_description": {
+          "ems_modus_terug": "De stand waarin de batterij zichzelf weer regelt."
+        }
       }
+    },
+    "error": {
+      "geen_vermogen": "Kies onder Details het getal waarmee je batterij wordt gestuurd."
+    },
+    "abort": {
+      "geen_apparaten": "Geen nieuwe apparaten gevonden. Je kunt ook zelf apparaten toevoegen in de webapp bij Apparaten."
     }
   },
   "entity": {
