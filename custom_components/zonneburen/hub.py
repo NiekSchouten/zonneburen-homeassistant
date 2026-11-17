@@ -30,7 +30,7 @@ from .const import (
     CONF_ADRES, CONF_APPARAAT_ID, CONF_APPARATEN, CONF_BATTERIJ, CONF_BATTERIJ_OM, CONF_BEDIENING, CONF_EMS_AAN,
     CONF_EMS_LADEN_POSITIEF, CONF_EMS_MAX_LAAD_W, CONF_EMS_MAX_ONTLAAD_W, CONF_EMS_MODUS, CONF_EMS_MODUS_STUREN,
     CONF_EMS_MODUS_TERUG, CONF_EMS_NETDOEL, CONF_EMS_VERMOGEN, CONF_EMS_ZEKERING_A, CONF_NAAM, CONF_NET, CONF_NET_OM,
-    CONF_OVERIG, CONF_SOC, CONF_VERBRUIK, CONF_WIJK_AUTOMATISCH, CONF_ZON, DOMAIN, FIRMWARE, SIGNAAL_BIJGEWERKT,
+    CONF_NET_TERUG, CONF_OVERIG, CONF_SOC, CONF_VERBRUIK, CONF_WIJK_AUTOMATISCH, CONF_ZON, DOMAIN, FIRMWARE, SIGNAAL_BIJGEWERKT,
 )
 from .ems import EmsUitvoerder
 from .verbinding import Verbinding
@@ -61,7 +61,7 @@ ALLEEN_OP_DE_HUB = (
     "slaveId", "profile", "hcClientId",
 )
 NAAR_OPTIE = {
-    "haEntGrid": CONF_NET, "haEntPv": CONF_ZON, "haEntBat": CONF_BATTERIJ, "haEntSoc": CONF_SOC, "haEntLoad": CONF_VERBRUIK,
+    "haEntGrid": CONF_NET, "haEntGridExport": CONF_NET_TERUG, "haEntPv": CONF_ZON, "haEntBat": CONF_BATTERIJ, "haEntSoc": CONF_SOC, "haEntLoad": CONF_VERBRUIK,
     "invertGrid": CONF_NET_OM, "invertBattery": CONF_BATTERIJ_OM, "deviceName": CONF_NAAM,
     # Het energieplan; dezelfde namen als op de hub waar die bestaan.
     "haEntBatSet": CONF_EMS_VERMOGEN, "haEntBatMode": CONF_EMS_MODUS,
@@ -75,7 +75,7 @@ NAAR_OPTIE = {
 JA_NEE = ("invertGrid", "invertBattery", "emsEnabled", "emsNetdoel", "haBatSetInvert", "ruleWijkAuto")
 GETALLEN = {"emsMaxLaadW": (0, 50000), "emsMaxOntlaadW": (0, 50000), "mainFuseA": (0, 80)}
 ENTITEIT_DOMEINEN = {
-    "haEntGrid": ("sensor",), "haEntPv": ("sensor",), "haEntBat": ("sensor",), "haEntSoc": ("sensor",), "haEntLoad": ("sensor",),
+    "haEntGrid": ("sensor",), "haEntGridExport": ("sensor",), "haEntPv": ("sensor",), "haEntBat": ("sensor",), "haEntSoc": ("sensor",), "haEntLoad": ("sensor",),
     "haEntBatSet": ("number", "input_number"), "haEntBatMode": ("select", "input_select"),
 }
 
@@ -204,10 +204,18 @@ class ZonneburenHub:
             waarde *= 1000
         return -waarde if omdraaien else waarde
 
+    def net_w(self) -> float | None:
+        """Positief is afname. Met twee sensoren (DSMR, P1 Monitor) het verschil van afname en teruglevering."""
+        net = self._watt(CONF_NET, self.opties.get(CONF_NET_OM, False))
+        if net is None or not self.opties.get(CONF_NET_TERUG):
+            return net
+        terug = self._watt(CONF_NET_TERUG)
+        return None if terug is None else net - terug
+
     @callback
     def _tik(self, _nu=None) -> None:
         nu = time.time()
-        net = self._watt(CONF_NET, self.opties.get(CONF_NET_OM, False))
+        net = self.net_w()
         zon = self._watt(CONF_ZON)
         bat = self._watt(CONF_BATTERIJ, self.opties.get(CONF_BATTERIJ_OM, False))
         soc, _ = self._getal(self.opties.get(CONF_SOC))

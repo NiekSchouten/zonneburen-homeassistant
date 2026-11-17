@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Step 1 of 2: connect to Zonneburen",
+        "title": "Step 1: connect to Zonneburen",
         "description": "Open the Zonneburen web app, go to **My hub** and create a pairing code. Enter that code here.",
         "data": {
           "server": "Web app address",
@@ -14,10 +14,11 @@
         }
       },
       "sensoren": {
-        "title": "Step 2 of 2: your sensors",
-        "description": "Connected as **{adres}**.\n\nPick the sensors Home Assistant already knows about your home. Only **Grid** is required; the others make the charts in the web app more complete. You can always change this later with **Configure**.",
+        "title": "Step 2: your meters",
+        "description": "Connected as **{adres}**.\n\nHome Assistant searched for you. This is what it measures now:\n\n{gevonden}\n\nLooks right? Just click **Submit**. If it says *export* while you are importing (or *charging* while your battery discharges), tick the matching invert option.",
         "data": {
-          "net": "Grid",
+          "net": "Smart meter (grid)",
+          "net_terug": "Export (only with a separate sensor)",
           "net_omdraaien": "Invert the grid sign",
           "zon": "Solar panels (optional)",
           "batterij": "Home battery (optional)",
@@ -28,15 +29,71 @@
           "bediening": "Allow control from the web app"
         },
         "data_description": {
-          "net": "The power (W) from your smart meter. Should be positive when you import and negative when you export.",
-          "net_omdraaien": "Tick this if your meter does it the other way round: positive when exporting.",
-          "zon": "The power your solar panels produce right now.",
-          "batterij": "The power of your home battery. Should be positive when discharging.",
-          "batterij_omdraaien": "Tick this if your battery reports positive while charging.",
+          "net": "The power from your smart meter, positive when importing. If your meter has import and export separately (like DSMR), pick the import here.",
+          "net_terug": "Only fill this in if your meter has export in a separate sensor. Zonneburen then uses import minus export.",
+          "net_omdraaien": "Tick this if your meter is positive when exporting.",
+          "zon": "What your solar panels produce right now.",
+          "batterij": "The power of your home battery, positive when discharging.",
+          "batterij_omdraaien": "Tick this if your battery is positive while charging.",
           "soc": "How full the battery is, in percent.",
-          "verbruik": "What your whole house uses right now.",
-          "wijk_automatisch": "When the neighbourhood has power to spare, Home Assistant switches on your chosen devices (water heater, EV charger) by itself. Off: you get a notification to confirm first.",
+          "verbruik": "You can leave this empty: Zonneburen then works it out itself.",
+          "wijk_automatisch": "When the neighbourhood has power to spare, Home Assistant switches on your chosen devices by itself. Off: you get a notification to confirm first.",
           "bediening": "Lets you switch devices in Home Assistant on and off from the web app."
+        }
+      },
+      "apparaten": {
+        "title": "Step 3: devices",
+        "description": "Zonneburen can switch these devices on when the neighbourhood has power to spare, or when the energy plan picks the cheapest moment. Tick what may take part.\n\nNothing changes about how they are set now. With neighbourhood power a heat pump goes 1 degree up and a water heater 10 degrees. You can change this later in the web app under **Devices**.",
+        "data": {
+          "kies": "Take part in Zonneburen"
+        }
+      },
+      "batterij": {
+        "title": "Step 4: home battery",
+        "description": "{uitleg}\n\nTurn this on and your battery charges when power is cheap and discharges when it is expensive, following the energy plan from the web app. In the web app set **Energy plan** to **Control**. You can always turn it off again with the *Carry out energy plan* switch.",
+        "data": {
+          "ems_aan": "Yes, let Zonneburen control my battery"
+        },
+        "sections": {
+          "details": {
+            "name": "Details (filled in automatically)",
+            "description": "Only needed if the battery was not recognised correctly.",
+            "data": {
+              "ems_vermogen": "Battery power (or charge power)",
+              "ems_ontlaad": "Discharge power (only with a separate number)",
+              "ems_netdoel": "This is a grid target",
+              "ems_laden_positief": "Positive number means charging",
+              "ems_modus": "Mode for external control (optional)",
+              "ems_richting": "Charge/discharge choice (optional)",
+              "ems_max_laad_w": "Charge at most (optional)",
+              "ems_max_ontlaad_w": "Discharge at most (optional)",
+              "ems_zekering_a": "Main fuse (optional)"
+            },
+            "data_description": {
+              "ems_vermogen": "The number (W) your battery integration uses to set the power. Positive means discharging, unless you flip it below.",
+              "ems_ontlaad": "If your battery has separate numbers for charging and discharging (like Marstek), pick the discharge number here and the charge number above.",
+              "ems_netdoel": "Tick this if the number sets the desired power on the grid, like the grid setpoint of a Victron ESS.",
+              "ems_modus": "A select or switch that first puts the battery in external control. You pick the modes in the next step.",
+              "ems_richting": "A select with options for charging, discharging and stopping.",
+              "ems_max_laad_w": "In watts. Empty or 0: the maximum from the plan.",
+              "ems_max_ontlaad_w": "In watts. Empty or 0: the maximum from the plan.",
+              "ems_zekering_a": "In amps. The battery charges less hard as soon as a phase gets close to this value."
+            }
+          }
+        }
+      },
+      "standen": {
+        "title": "Battery modes",
+        "description": "Zonneburen already picked the modes. If they look right, click **Submit**.",
+        "data": {
+          "ems_modus_sturen": "Mode for external control",
+          "ems_modus_terug": "Mode to return to",
+          "ems_richting_laden": "Option to charge",
+          "ems_richting_ontladen": "Option to discharge",
+          "ems_richting_stop": "Option to stop"
+        },
+        "data_description": {
+          "ems_modus_terug": "The mode in which the battery manages itself again."
         }
       }
     },
@@ -45,7 +102,8 @@
       "niet_toegestaan": "The server refuses this pairing. Ask your neighbourhood board for help.",
       "te_vaak": "Too many attempts. Try again in fifteen minutes.",
       "niet_bereikbaar": "The web app cannot be reached. Check the address and your internet connection.",
-      "geen_https": "The address must start with https://."
+      "geen_https": "The address must start with https://.",
+      "geen_vermogen": "Under Details, pick the number that controls your battery."
     },
     "abort": {
       "already_configured": "This house is already connected."
@@ -55,9 +113,19 @@
     "step": {
       "init": {
         "title": "Zonneburen settings",
-        "description": "Change your sensors, or expand **Energy plan** to let Home Assistant control your home battery.",
+        "description": "What would you like to change?",
+        "menu_options": {
+          "sensoren": "Meters (grid, solar, battery)",
+          "apparaten": "Find devices (heat pump, water heater, charger)",
+          "batterij": "Let Zonneburen control the home battery"
+        }
+      },
+      "sensoren": {
+        "title": "Your meters",
+        "description": "Home Assistant searched for you. This is what it measures now:\n\n{gevonden}\n\nLooks right? Just click **Submit**. If it says *export* while you are importing (or *charging* while your battery discharges), tick the matching invert option.",
         "data": {
-          "net": "Grid",
+          "net": "Smart meter (grid)",
+          "net_terug": "Export (only with a separate sensor)",
           "net_omdraaien": "Invert the grid sign",
           "zon": "Solar panels (optional)",
           "batterij": "Home battery (optional)",
@@ -68,47 +136,79 @@
           "bediening": "Allow control from the web app"
         },
         "data_description": {
-          "net": "The power (W) from your smart meter. Should be positive when you import and negative when you export.",
-          "net_omdraaien": "Tick this if your meter does it the other way round: positive when exporting.",
-          "zon": "The power your solar panels produce right now.",
-          "batterij": "The power of your home battery. Should be positive when discharging.",
-          "batterij_omdraaien": "Tick this if your battery reports positive while charging.",
+          "net": "The power from your smart meter, positive when importing. If your meter has import and export separately (like DSMR), pick the import here.",
+          "net_terug": "Only fill this in if your meter has export in a separate sensor. Zonneburen then uses import minus export.",
+          "net_omdraaien": "Tick this if your meter is positive when exporting.",
+          "zon": "What your solar panels produce right now.",
+          "batterij": "The power of your home battery, positive when discharging.",
+          "batterij_omdraaien": "Tick this if your battery is positive while charging.",
           "soc": "How full the battery is, in percent.",
-          "verbruik": "What your whole house uses right now.",
-          "wijk_automatisch": "When the neighbourhood has power to spare, Home Assistant switches on your chosen devices (water heater, EV charger) by itself. Off: you get a notification to confirm first.",
+          "verbruik": "You can leave this empty: Zonneburen then works it out itself.",
+          "wijk_automatisch": "When the neighbourhood has power to spare, Home Assistant switches on your chosen devices by itself. Off: you get a notification to confirm first.",
           "bediening": "Lets you switch devices in Home Assistant on and off from the web app."
+        }
+      },
+      "apparaten": {
+        "title": "Find devices",
+        "description": "Zonneburen can switch these devices on when the neighbourhood has power to spare, or when the energy plan picks the cheapest moment. Tick what may take part.\n\nNothing changes about how they are set now. With neighbourhood power a heat pump goes 1 degree up and a water heater 10 degrees. You can change this later in the web app under **Devices**.",
+        "data": {
+          "kies": "Take part in Zonneburen"
+        }
+      },
+      "batterij": {
+        "title": "Home battery",
+        "description": "{uitleg}\n\nTurn this on and your battery charges when power is cheap and discharges when it is expensive, following the energy plan from the web app. In the web app set **Energy plan** to **Control**. You can always turn it off again with the *Carry out energy plan* switch.",
+        "data": {
+          "ems_aan": "Yes, let Zonneburen control my battery"
         },
         "sections": {
-          "energieplan": {
-            "name": "Energy plan (control your home battery)",
-            "description": "First set **Energy plan** to **Control** in the web app. Then choose here how Home Assistant drives your battery.",
+          "details": {
+            "name": "Details (filled in automatically)",
+            "description": "Only needed if the battery was not recognised correctly.",
             "data": {
-              "ems_aan": "Carry out the energy plan",
-              "ems_vermogen": "Entity that sets the battery power",
-              "ems_netdoel": "This entity is a grid target",
+              "ems_vermogen": "Battery power (or charge power)",
+              "ems_ontlaad": "Discharge power (only with a separate number)",
+              "ems_netdoel": "This is a grid target",
               "ems_laden_positief": "Positive number means charging",
-              "ems_modus": "Entity for the battery mode (optional)",
-              "ems_modus_sturen": "Mode for external control",
-              "ems_modus_terug": "Mode to return to",
+              "ems_modus": "Mode for external control (optional)",
+              "ems_richting": "Charge/discharge choice (optional)",
               "ems_max_laad_w": "Charge at most (optional)",
               "ems_max_ontlaad_w": "Discharge at most (optional)",
               "ems_zekering_a": "Main fuse (optional)"
             },
             "data_description": {
-              "ems_aan": "Main switch. You can also turn this on and off later with the Carry out energy plan switch.",
-              "ems_vermogen": "A number entity (W) from your battery integration, such as the charge/discharge power. Positive means discharging.",
-              "ems_netdoel": "Tick this if the entity sets the desired power on the grid rather than the battery power, like the grid setpoint of a Victron ESS.",
-              "ems_laden_positief": "Tick this if the entity uses a positive number for charging.",
-              "ems_modus": "Only needed if your battery must first be put in a mode for external control.",
-              "ems_modus_sturen": "Exactly as the option is named in the list, for example Remote control. Leave empty if not needed.",
-              "ems_modus_terug": "The mode in which the battery manages itself again, for example Self consumption.",
+              "ems_vermogen": "The number (W) your battery integration uses to set the power. Positive means discharging, unless you flip it below.",
+              "ems_ontlaad": "If your battery has separate numbers for charging and discharging (like Marstek), pick the discharge number here and the charge number above.",
+              "ems_netdoel": "Tick this if the number sets the desired power on the grid, like the grid setpoint of a Victron ESS.",
+              "ems_modus": "A select or switch that first puts the battery in external control. You pick the modes in the next step.",
+              "ems_richting": "A select with options for charging, discharging and stopping.",
               "ems_max_laad_w": "In watts. Empty or 0: the maximum from the plan.",
               "ems_max_ontlaad_w": "In watts. Empty or 0: the maximum from the plan.",
               "ems_zekering_a": "In amps. The battery charges less hard as soon as a phase gets close to this value."
             }
           }
         }
+      },
+      "standen": {
+        "title": "Battery modes",
+        "description": "Zonneburen already picked the modes. If they look right, click **Submit**.",
+        "data": {
+          "ems_modus_sturen": "Mode for external control",
+          "ems_modus_terug": "Mode to return to",
+          "ems_richting_laden": "Option to charge",
+          "ems_richting_ontladen": "Option to discharge",
+          "ems_richting_stop": "Option to stop"
+        },
+        "data_description": {
+          "ems_modus_terug": "The mode in which the battery manages itself again."
+        }
       }
+    },
+    "error": {
+      "geen_vermogen": "Under Details, pick the number that controls your battery."
+    },
+    "abort": {
+      "geen_apparaten": "No new devices found. You can also add devices yourself in the web app under Devices."
     }
   },
   "entity": {

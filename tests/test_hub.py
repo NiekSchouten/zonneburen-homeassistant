@@ -287,3 +287,14 @@ async def test_kaarten_en_paneel_zonder_frontend_geen_fout(hass, hub):
 
     await paneel.registreer(hass)
     assert not hass.data.get("zonneburen_frontend")
+
+
+async def test_net_uit_afname_en_teruglevering_apart(hass, hub):
+    """Een DSMR-meter: afname en teruglevering in twee sensoren, allebei positief."""
+    hass.states.async_set("sensor.afname", "0.2", {"unit_of_measurement": "kW"})
+    hass.states.async_set("sensor.terug", "1.7", {"unit_of_measurement": "kW"})
+    hass.config_entries.async_update_entry(hub.entry, options={**hub.entry.options, "net": "sensor.afname", "net_terug": "sensor.terug"})
+    assert hub.net_w() == -1500
+
+    hass.states.async_set("sensor.terug", "unavailable")
+    assert hub.net_w() is None

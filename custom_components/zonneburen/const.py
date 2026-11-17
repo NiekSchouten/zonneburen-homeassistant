@@ -1,7 +1,7 @@
 """Vaste waarden van de Zonneburen-integratie."""
 
 DOMAIN = "zonneburen"
-VERSIE = "0.5.0"
+VERSIE = "0.6.0"
 
 # De webapp herkent hieraan een software-hub: geen firmware, bijwerken gaat via de Marketplace.
 FIRMWARE = f"ha-{VERSIE}"
@@ -41,9 +41,20 @@ CONF_EMS_MODUS_TERUG = "ems_modus_terug"
 CONF_EMS_MAX_LAAD_W = "ems_max_laad_w"
 CONF_EMS_MAX_ONTLAAD_W = "ems_max_ontlaad_w"
 CONF_EMS_ZEKERING_A = "ems_zekering_a"
+# Batterijen met een apart getal om te ontladen (CONF_EMS_VERMOGEN is dan het laadvermogen), en een
+# keuze voor de richting, zoals Marstek of SolarEdge.
+CONF_EMS_ONTLAAD = "ems_ontlaad"
+CONF_EMS_RICHTING = "ems_richting"
+CONF_EMS_RICHTING_LADEN = "ems_richting_laden"
+CONF_EMS_RICHTING_ONTLADEN = "ems_richting_ontladen"
+CONF_EMS_RICHTING_STOP = "ems_richting_stop"
 EMS_OPTIES = (CONF_EMS_AAN, CONF_EMS_VERMOGEN, CONF_EMS_NETDOEL, CONF_EMS_LADEN_POSITIEF, CONF_EMS_MODUS, CONF_EMS_MODUS_STUREN,
-              CONF_EMS_MODUS_TERUG, CONF_EMS_MAX_LAAD_W, CONF_EMS_MAX_ONTLAAD_W, CONF_EMS_ZEKERING_A)
+              CONF_EMS_MODUS_TERUG, CONF_EMS_MAX_LAAD_W, CONF_EMS_MAX_ONTLAAD_W, CONF_EMS_ZEKERING_A, CONF_EMS_ONTLAAD,
+              CONF_EMS_RICHTING, CONF_EMS_RICHTING_LADEN, CONF_EMS_RICHTING_ONTLADEN, CONF_EMS_RICHTING_STOP)
 
-SENSOREN = (CONF_NET, CONF_ZON, CONF_BATTERIJ, CONF_SOC, CONF_VERBRUIK)
+# Slimme meters met afname en teruglevering in twee sensoren (DSMR, P1 Monitor): het net is het verschil.
+CONF_NET_TERUG = "net_terug"
+
+SENSOREN = (CONF_NET, CONF_NET_TERUG, CONF_ZON, CONF_BATTERIJ, CONF_SOC, CONF_VERBRUIK)
 
 SIGNAAL_BIJGEWERKT = f"{DOMAIN}_bijgewerkt"

@@ -2,8 +2,9 @@
 
 De server zet het plan retained op hub/plan. Elke tik (5 s) regelt de uitvoerder de batterij bij via
 een number-entiteit van de merkintegratie: het vermogen van de batterij, of bij een Victron ESS het
-netdoel. Een select-entiteit kan de batterij eerst in de stand voor externe sturing zetten en hem bij
-het stoppen terugzetten. Zonder geldig plan, bij een pauze of zonder verse netmeting krijgt de
+netdoel. Heeft de batterij aparte getallen voor laden en ontladen (Marstek, SolarEdge), dan zet een
+select-entiteit de richting. Een select of schakelaar kan de batterij eerst in de stand voor externe
+sturing zetten en hem bij het stoppen terugzetten. Zonder geldig plan, bij een pauze of zonder verse netmeting krijgt de
 batterij zijn eigen stand terug.
 """
 
@@ -20,7 +21,8 @@ from homeassistant.util import dt as dt_util
 from . import ems_core
 from .const import (
     CONF_BEDIENING, CONF_EMS_AAN, CONF_EMS_LADEN_POSITIEF, CONF_EMS_MAX_LAAD_W, CONF_EMS_MAX_ONTLAAD_W, CONF_EMS_MODUS,
-    CONF_EMS_MODUS_STUREN, CONF_EMS_MODUS_TERUG, CONF_EMS_NETDOEL, CONF_EMS_VERMOGEN, CONF_EMS_ZEKERING_A, CONF_NET, DOMAIN,
+    CONF_EMS_MODUS_STUREN, CONF_EMS_MODUS_TERUG, CONF_EMS_NETDOEL, CONF_EMS_ONTLAAD, CONF_EMS_RICHTING, CONF_EMS_RICHTING_LADEN,
+    CONF_EMS_RICHTING_ONTLADEN, CONF_EMS_RICHTING_STOP, CONF_EMS_VERMOGEN, CONF_EMS_ZEKERING_A, CONF_NET, DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,8 +48,9 @@ class EmsUitvoerder:
         self.laatste: ems_core.Opdracht | None = None
         self.gestart = False
         self._vorig_bat: float | None = None
-        self._laatst_geschreven: float | None = None
-        self._laatst_geschreven_op = 0.0
+        # Per entiteit wat er het laatst is geschreven en wanneer: niet elke tik dezelfde waarde sturen.
+        self._geschreven: dict[str, tuple[float, float]] = {}
+        self._richting: str | None = None
         self._volgende_start = 0.0
         self._status_op = 0.0
         self._status_klaar = True
@@ -195,44 +198,94 @@ class EmsUitvoerder:
             return False
         return True
 
-    async def _modus(self, optie_sleutel: str) -> bool:
-        entiteit, optie = self.opties.get(CONF_EMS_MODUS), self.opties.get(optie_sleutel)
-        if not entiteit or not optie:
+    async def _modus(self, sturen: bool) -> bool:
+        """De batterij in de stand voor externe sturing zetten, of terug in zijn eigen stand."""
+        entiteit = self.opties.get(CONF_EMS_MODUS)
+        if not entiteit:
             return True
         domein = entiteit.split(".", 1)[0]
+        if domein in ("switch", "input_boolean"):
+            return await self._dienst(domein, "turn_on" if sturen else "turn_off", {"entity_id": entiteit})
+        optie = self.opties.get(CONF_EMS_MODUS_STUREN if sturen else CONF_EMS_MODUS_TERUG)
+        if not optie:
+            return True
         return await self._dienst(domein, "select_option", {"entity_id": entiteit, "option": optie})
 
+    def _apart(self) -> bool:
+        return bool(self.opties.get(CONF_EMS_ONTLAAD))
+
     async def _start(self) -> None:
-        if await self._modus(CONF_EMS_MODUS_STUREN):
-            self.gestart, self.fout, self._vorig_bat, self._laatst_geschreven = True, "", None, None
+        if await self._modus(True):
+            self.gestart, self.fout, self._vorig_bat, self._geschreven, self._richting = True, "", None, {}, None
             self.hub._log(1, f"Energieplan stuurt nu {self.opties.get(CONF_EMS_VERMOGEN)}")
         else:
             self._volgende_start = time.time() + HERSTART_S
         self.hub._stuur_vermogens()
 
     async def _stop(self, waarom: str) -> None:
+        if self._apart():
+            await self._zet_richting(CONF_EMS_RICHTING_STOP)
+            await self._schrijf(0, True, self.opties.get(CONF_EMS_ONTLAAD))
         await self._schrijf(0, True)
-        await self._modus(CONF_EMS_MODUS_TERUG)
-        self.gestart, self._vorig_bat, self._laatst_geschreven = False, None, None
+        await self._modus(False)
+        self.gestart, self._vorig_bat, self._geschreven, self._richting = False, None, {}, None
         self.hub._log(0, f"Energieplan: batterij weer in eigen stand ({waarom})")
 
     async def _zet(self, opdracht: ems_core.Opdracht) -> bool:
+        if self._apart():
+            return await self._zet_apart(opdracht.bat_w)
         if self.opties.get(CONF_EMS_NETDOEL):
             waarde = round(opdracht.net_doel_w)
         else:
             waarde = -opdracht.bat_w if self.opties.get(CONF_EMS_LADEN_POSITIEF) else opdracht.bat_w
         return await self._schrijf(waarde)
 
-    async def _schrijf(self, waarde: float, altijd: bool = False) -> bool:
-        nu = time.time()
-        if not altijd and self._laatst_geschreven is not None and abs(waarde - self._laatst_geschreven) < DREMPEL_W \
-                and nu - self._laatst_geschreven_op < VERVERS_S:
+    async def _zet_apart(self, bat_w: float) -> bool:
+        """Laden en ontladen elk met een eigen getal (allebei positief), en de richting via een keuze."""
+        laden = -bat_w if bat_w <= -DREMPEL_W else 0
+        ontladen = bat_w if bat_w >= DREMPEL_W else 0
+        richting = CONF_EMS_RICHTING_LADEN if laden else CONF_EMS_RICHTING_ONTLADEN if ontladen else CONF_EMS_RICHTING_STOP
+        ontlaad = self.opties.get(CONF_EMS_ONTLAAD)
+        # Eerst wat uit moet, dan de richting, dan wat aan moet: nooit even beide kanten op.
+        gelukt = True
+        if not laden:
+            gelukt &= await self._schrijf(0)
+        if not ontladen:
+            gelukt &= await self._schrijf(0, entiteit=ontlaad)
+        gelukt &= await self._zet_richting(richting)
+        if laden:
+            gelukt &= await self._schrijf(laden)
+        if ontladen:
+            gelukt &= await self._schrijf(ontladen, entiteit=ontlaad)
+        return gelukt
+
+    async def _zet_richting(self, sleutel: str) -> bool:
+        entiteit, optie = self.opties.get(CONF_EMS_RICHTING), self.opties.get(sleutel)
+        if not entiteit or not optie or optie == self._richting:
             return True
-        entiteit = self.opties.get(CONF_EMS_VERMOGEN)
+        if await self._dienst(entiteit.split(".", 1)[0], "select_option", {"entity_id": entiteit, "option": optie}):
+            self._richting = optie
+            return True
+        return False
+
+    async def _schrijf(self, waarde: float, altijd: bool = False, entiteit: str | None = None) -> bool:
+        entiteit = entiteit or self.opties.get(CONF_EMS_VERMOGEN)
         if not entiteit:
             return False
+        # Binnen wat de entiteit zelf toestaat: anders weigert de merkintegratie de hele opdracht.
+        if staat := self.hub.hass.states.get(entiteit):
+            laag, hoog = staat.attributes.get("min"), staat.attributes.get("max")
+            if isinstance(hoog, (int, float)):
+                waarde = min(waarde, hoog)
+            if isinstance(laag, (int, float)):
+                waarde = max(waarde, laag)
+        nu = time.time()
+        vorig = self._geschreven.get(entiteit)
+        if not altijd and vorig is not None and abs(waarde - vorig[0]) < DREMPEL_W and nu - vorig[1] < VERVERS_S:
+            return True
         if await self._dienst(entiteit.split(".", 1)[0], "set_value", {"entity_id": entiteit, "value": round(waarde)}):
-            self._laatst_geschreven, self._laatst_geschreven_op, self.fout = waarde, nu, ""
+            self._geschreven[entiteit] = (waarde, nu)
+            self.fout = ""
             return True
         return False
 
