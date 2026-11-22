@@ -116,6 +116,9 @@ class ZonneburenHub:
         self.ems = EmsUitvoerder(self)
         # Wat het energieplan per apparaat vroeg bij de vorige tik: schakelen alleen bij een verandering.
         self._plan_apparaten: tuple | None = None
+        # Per plek wat Zonneburen het laatst van het apparaat wilde (entiteit, aan, temperatuur). Alleen als dat
+        # verandert, wordt er geschakeld: wat de bewoner zelf aan- of uitzet, blijft zo staan.
+        self._vorig_gewenst: dict[int, tuple] = {}
 
     # ------------------------------------------------------------------ Levensloop
 
@@ -129,6 +132,8 @@ class ZonneburenHub:
             self.standen = [int(s) if s in (-1, 0, 1) else 0 for s in standen][: protocol.MAX_APPARATEN]
             self.standen += [0] * (protocol.MAX_APPARATEN - len(self.standen))
             self.ems.herstel(opgeslagen.get("emsplan"))
+        # Vanaf hier telt alleen nog een verandering: opstarten zet niets om.
+        self._onthoud_gewenst()
 
         self._log(INFO, f"Gestart als hub ({FIRMWARE})")
         self.verbinding.start()
@@ -377,13 +382,14 @@ class ZonneburenHub:
                 self._meld(ALARM, "Noodstop van het bestuur actief: apparaten terug op normaal")
             else:
                 self._log(GOED, "Noodstop opgeheven")
-            await self._pas_toe()
+            await self._pas_toe(alles=actief)
             self._bijgewerkt()
         if actief and self._heeft_wijkapparaten():
             self._ack("noodstop_broadcast", "uitgevoerd")
 
     def _heeft_wijkapparaten(self) -> bool:
-        return any(a["enabled"] and a["wijk"] and a["type"] == protocol.SOORT_HOME_ASSISTANT and a["host"] for a in self._apparaten())
+        return any(a["enabled"] and a["wijk"] and a["type"] == protocol.SOORT_HOME_ASSISTANT and a["host"] and not is_licht(a)
+                   for a in self._apparaten())
 
     async def _wijk_commando(self, commando: str, vraag: bool) -> None:
         start = commando in ("surplus_start", "stroom_overschot")
@@ -425,6 +431,9 @@ class ZonneburenHub:
     # ------------------------------------------------------------------ Apparaten
 
     def _gewenst(self, i: int, apparaat: dict) -> tuple[bool, str]:
+        if is_licht(apparaat):
+            # Verlichting schakelt alleen op verzoek van de bewoner: geen plan, wijk of noodstop.
+            return bool(self._is_aan(apparaat["host"])), "Op verzoek"
         stand = self.standen[i]
         if stand == 1:
             return True, "Handmatig aan"
@@ -458,14 +467,34 @@ class ZonneburenHub:
             return None
         return staat.state not in UIT
 
-    async def _pas_toe(self) -> None:
-        """Alleen bij een verandering, niet elke tik: wat de bewoner in Home Assistant zelf schakelt, blijft staan."""
+    def _gewenst_met_temp(self, i: int, apparaat: dict) -> tuple:
+        aan, reden = self._gewenst(i, apparaat)
+        # Een temperatuur uit het plan geldt alleen zolang het plan het apparaat stuurt.
+        temp = self.ems.apparaat(i).temp if reden.startswith("Energieplan") else None
+        return apparaat["host"], aan, temp
+
+    def _onthoud_gewenst(self) -> None:
+        self._vorig_gewenst = {i: self._gewenst_met_temp(i, a) for i, a in enumerate(self._apparaten())
+                               if a["enabled"] and a["host"] and not is_licht(a)}
+
+    async def _pas_toe(self, forceer: int | None = None, alles: bool = False) -> None:
+        """Alleen apparaten waarvoor Zonneburen nu iets anders wil dan de vorige keer, of die de bewoner net bediende.
+        Wat de bewoner in Home Assistant of met de muurschakelaar zelf schakelt, blijft staan. Verlichting nooit."""
         for i, apparaat in enumerate(self._apparaten()):
             if not apparaat["enabled"] or apparaat["type"] != protocol.SOORT_HOME_ASSISTANT or not apparaat["host"]:
+                self._vorig_gewenst.pop(i, None)
                 continue
-            aan, reden = self._gewenst(i, apparaat)
-            # Een temperatuur uit het plan geldt alleen zolang het plan het apparaat stuurt.
-            temp = self.ems.apparaat(i).temp if reden.startswith("Energieplan") else None
+            if is_licht(apparaat):
+                self._vorig_gewenst.pop(i, None)
+                continue
+            gewenst = self._gewenst_met_temp(i, apparaat)
+            vorig = self._vorig_gewenst.get(i)
+            self._vorig_gewenst[i] = gewenst
+            # Een net gekoppeld apparaat (of een andere entiteit op deze plek) blijft eerst zoals het is.
+            nieuw = vorig is None or vorig[0] != gewenst[0]
+            if not (alles or i == forceer) and (nieuw or vorig == gewenst):
+                continue
+            _, aan, temp = gewenst
             if self._is_aan(apparaat["host"]) is not aan or temp is not None or apparaat["host"].split(".", 1)[0] in ("climate", "water_heater"):
                 await self._schakel(apparaat, aan, temp=temp)
 
@@ -515,7 +544,7 @@ class ZonneburenHub:
             staat = self.hass.states.get(apparaat["host"]) if apparaat["host"] else None
             _, reden = self._gewenst(i, apparaat)
             regel = {"i": i, "name": apparaat["name"], "role": apparaat["role"], "on": bool(self._is_aan(apparaat["host"])) if staat else False,
-                     "mode": self.standen[i], "reason": reden, "ok": staat is not None and staat.state != STATE_UNAVAILABLE,
+                     "mode": 0 if is_licht(apparaat) else self.standen[i], "reason": reden, "ok": staat is not None and staat.state != STATE_UNAVAILABLE,
                      "watts": apparaat["watts"]}
             if apparaat["type"] != protocol.SOORT_HOME_ASSISTANT:
                 regel.update(ok=False, error="Alleen apparaten uit Home Assistant")
@@ -668,9 +697,16 @@ class ZonneburenHub:
             return "apparaat niet gevonden"
         if modus not in STANDEN:
             return "onbekende stand"
+        apparaat = self._apparaten()[i]
+        self._log(INFO, f"Via de webapp: {apparaat['name'] or i + 1} op {modus}")
+        if is_licht(apparaat):
+            # Eén opdracht, geen blijvende stand: daarna mag de muurschakelaar of Home Assistant weer winnen.
+            self.standen[i] = 0
+            if modus != "auto" and not await self._schakel(apparaat, modus == "on"):
+                return "schakelen mislukt"
+            return None
         self.standen[i] = STANDEN[modus]
-        self._log(INFO, f"Via de webapp: {self._apparaten()[i]['name'] or i + 1} op {modus}")
-        await self._pas_toe()
+        await self._pas_toe(forceer=i)
         return None
 
     async def _dim(self, i, procent) -> str | None:
@@ -678,7 +714,6 @@ class ZonneburenHub:
         if not isinstance(i, int) or not 0 <= i < len(apparaten) or not apparaten[i]["host"].startswith("light."):
             return "dit apparaat kan niet dimmen"
         procent = max(1, min(int(procent if isinstance(procent, (int, float)) else 100), 100))
-        self.standen[i] = 1
         return None if await self._schakel(apparaten[i], True, procent) else "dimmen mislukt"
 
     async def _zet_temperatuur(self, i, waarde) -> str | None:
@@ -714,6 +749,11 @@ class ZonneburenHub:
             self.vraag = False
             persistent_notification.async_dismiss(self.hass, f"{DOMAIN}_wijkvraag")
             self._ack("surplus_start", "geweigerd_door_bewoner")
+
+
+def is_licht(apparaat: dict) -> bool:
+    """Een lamp: zo ingesteld in de webapp, of een light-entiteit in Home Assistant."""
+    return apparaat.get("role") == protocol.ROL_LICHT or str(apparaat.get("host") or "").startswith("light.")
 
 
 def _rond(waarde: float | None) -> float | None:

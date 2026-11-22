@@ -298,3 +298,71 @@ async def test_net_uit_afname_en_teruglevering_apart(hass, hub):
 
     hass.states.async_set("sensor.terug", "unavailable")
     assert hub.net_w() is None
+
+
+LAMP = {"enabled": True, "name": "Keukenlamp", "role": protocol.ROL_LICHT, "type": 6, "host": "light.keuken", "watts": 60, "wijk": True}
+
+
+async def _met_lamp(hass, hub, **lamp):
+    hass.states.async_set("light.keuken", "on", {"friendly_name": "Keukenlamp"})
+    hass.config_entries.async_update_entry(hub.entry, options={**hub.entry.options, "apparaten": [BOILER, {**LAMP, **lamp}]})
+    await hass.async_block_till_done()
+
+
+async def test_een_lamp_koppelen_zet_hem_niet_uit(hass, hub):
+    uit = async_mock_service(hass, "homeassistant", "turn_off")
+    hub._zet_instellingen({"loads": [BOILER, LAMP]})
+    await hass.async_block_till_done()
+    hass.states.async_set("light.keuken", "on")
+    hub._tik()
+    await hass.async_block_till_done()
+    assert not uit
+
+
+async def test_lamp_doet_niet_mee_met_wijk_plan_of_noodstop(hass, hub):
+    await _met_lamp(hass, hub)
+    aan = async_mock_service(hass, "homeassistant", "turn_on")
+    uit = async_mock_service(hass, "homeassistant", "turn_off")
+    hub._bij_bericht(protocol.TOPIC_SCHAKELEN, json.dumps({"adres": ADRES, "commando": "surplus_start"}).encode())
+    await hass.async_block_till_done()
+    await hub._zet_noodstop(True)
+    await hub._zet_noodstop(False)
+    await hass.async_block_till_done()
+    assert all(c.data["entity_id"] == "switch.boiler" for c in aan + uit)
+    assert hub._gewenst(1, hub._apparaten()[1]) == (True, "Op verzoek")
+
+
+async def test_lamp_schakelen_is_een_enkele_opdracht(hass, hub):
+    await _met_lamp(hass, hub)
+    aan = async_mock_service(hass, "homeassistant", "turn_on")
+    hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("modus", i=1, modus="on"))
+    await hass.async_block_till_done()
+    assert [c.data["entity_id"] for c in aan] == ["light.keuken"] and hub.standen[1] == 0
+
+    # Daarna zet de bewoner hem met de muurschakelaar uit, en schakelt de boiler: de lamp blijft uit.
+    hass.states.async_set("light.keuken", "off")
+    hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("modus", i=0, modus="on"))
+    await hass.async_block_till_done()
+    assert [c.data["entity_id"] for c in aan] == ["light.keuken", "switch.boiler"]
+
+
+async def test_light_entiteit_telt_als_lamp_ook_met_een_andere_rol(hass, hub):
+    await _met_lamp(hass, hub, role=protocol.ROL_ANDERS)
+    uit = async_mock_service(hass, "homeassistant", "turn_off")
+    await hub._zet_noodstop(True)
+    await hass.async_block_till_done()
+    assert all(c.data["entity_id"] != "light.keuken" for c in uit)
+
+
+async def test_een_ander_apparaat_bedienen_zet_de_rest_niet_terug(hass, hub):
+    hass.states.async_set("switch.tv", "on")
+    tv = {**BOILER, "name": "Tv", "host": "switch.tv", "role": protocol.ROL_ANDERS}
+    hass.config_entries.async_update_entry(hub.entry, options={**hub.entry.options, "apparaten": [BOILER, tv]})
+    await hass.async_block_till_done()
+    hub._zet_instellingen({"loads": [BOILER, tv]})
+    await hass.async_block_till_done()
+    uit = async_mock_service(hass, "homeassistant", "turn_off")
+    async_mock_service(hass, "homeassistant", "turn_on")
+    hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("modus", i=0, modus="on"))
+    await hass.async_block_till_done()
+    assert not uit
