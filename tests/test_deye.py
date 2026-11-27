@@ -214,13 +214,15 @@ async def test_noodstop_zet_de_eigen_instellingen_terug(hass, hub):
 
 
 async def test_binnen_vijf_minuten_geen_tweede_schrijfactie_bij_dezelfde_stand(hass, hub):
-    await stuur(hass, hub, "vasthouden", 0, 47, soc_nu=47)
-    zet_deye(hass, soc=47, vermogen=10000, tou="Enabled", tijden=ONZE_TIJDEN)
     d = Diensten(hass)
+    await stuur(hass, hub, "vasthouden", 0, 47, soc_nu=47)
+    assert {d.waarde(i) for i in SOC} == {47}
+    zet_deye(hass, soc=47, vermogen=10000, tou="Enabled", tijden=ONZE_TIJDEN)
+    voor = len(d.alle)
     hub.ems.deye._volgende = 0
     await hub.ems.tik(500, 0, 55)          # 8 % voller, zelfde stand, binnen vijf minuten
     await hass.async_block_till_done()
-    assert not [c for c in d.alle if c.data["entity_id"] in SOC]
+    assert not [c for c in d.alle[voor:] if c.data["entity_id"] in SOC]
 
 
 async def test_bij_het_afsluiten_niets_terugzetten(hass, hub):
