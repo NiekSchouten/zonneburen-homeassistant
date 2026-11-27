@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.2
+
+**Herstart niet nodig:** alleen de kaarten zijn veranderd. Ververs de browser (Ctrl+F5).
+
+- In het paneel heet het tabblad *Per kwartier* nu **Energieplan**.
+- Het energieplan kun je op drie manieren bekijken:
+  - **Weergave:** *Blokken* (de standaard) zet kwartieren met dezelfde stand en dezelfde apparaten samen in één
+    regel: van–tot, duur, hoeveel de batterij laadt of levert, lading van–tot, gemiddelde prijs. *Per kwartier*
+    is de tabel zoals voorheen.
+  - **Tonen:** alles, alleen ingrepen, of (per kwartier) alleen de kwartieren waarin iets verandert.
+  - **Bereik:** de komende 24 uur of het hele plan.
+- Je kiest zelf welke kolommen je ziet: prijs, zon, verbruik, batterij, net, netdoel en lading. De browser onthoudt
+  je keuze.
+- Bovenaan staat een samenvatting: hoeveel de batterij laadt en levert, hoeveel er van het net komt en terug
+  gaat, en het goedkoopste moment.
+- De kaart `zonneburen-kwartier-card` heeft de nieuwe opties ook in de kaarteditor (weergave, tonen, bereik,
+  samenvatting). De oude instelling `filter` werkt nog.
+
 ## 0.10.1
 
 **Herstart nodig:** ja, er is Python-code gewijzigd.
