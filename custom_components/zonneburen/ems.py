@@ -33,6 +33,7 @@ DREMPEL_W = 50
 VERVERS_S = 30
 STATUS_S = 15 * 60
 TRAAG_S = 20
+VERBINDING_WEG_S = 600
 HERSTART_S = 60
 
 # Integraties die zelf een batterij plannen: twee regelaars werken elkaar tegen.
@@ -88,13 +89,31 @@ class EmsUitvoerder:
         nu = time.time()
         if not (self.opties.get(CONF_EMS_AAN) and self.opties.get(CONF_BEDIENING, True)) or self.pauze_tot > nu:
             return ems_core.ApparaatStand(None)
+        # Langer dan tien minuten geen verbinding met de server: apparaten terug naar hun eigen stand.
+        if not self.hub.verbinding.verbonden:
+            self._weg_sinds = self._weg_sinds or nu
+            if nu - self._weg_sinds > VERBINDING_WEG_S:
+                return ems_core.ApparaatStand(None)
+        else:
+            self._weg_sinds = None
         return ems_core.apparaat_stand(self.plan, index, nu, self.vorig_plan)
+
+    def soort(self, index: int) -> dict:
+        """Wat het plan over dit apparaat weet: soort, of hij uit mag, de duur van een programma."""
+        for p in (self.plan, self.vorig_plan):
+            if p is not None and index in p.soorten:
+                return p.soorten[index]
+        return {}
+
+    _weg_sinds: float | None = None
 
     def niveau(self) -> str:
         if not self.mag_sturen():
             return "D"
-        # Tijdprogramma's volgen het plan per kwartier, niet op de seconde.
-        return "B" if self.is_deye() or self._traag() else "A"
+        # Een Deye volgt zelf zijn CT-meter; de integratie geeft per kwartier de stand.
+        if self.is_deye():
+            return "A"
+        return "B" if self._traag() else "A"
 
     def _traag(self) -> bool:
         staat = self.hub.hass.states.get(self.opties.get(CONF_NET) or "")
@@ -105,12 +124,14 @@ class EmsUitvoerder:
 
     def vermogens(self) -> dict:
         if self.is_deye():
-            # Een Deye kan laden van het net, de lading vasthouden en zelfverbruik, maar niet met een vast vermogen
-            # naar het net ontladen. Dat zeggen we de server: dan plant hij dat ook niet.
-            standen = [s for s in ems_core.STANDEN if s != ems_core.NETONTLADEN]
+            # Een Deye regelt zelf op zijn CT-meter: per kwartier de goede stand is genoeg voor volledig sturen.
+            # Naar het net ontladen (Export First) alleen als de bewoner dat toestaat; anders plant de server het niet.
+            standen = [s for s in ems_core.STANDEN if s != ems_core.NETONTLADEN or self.deye.terugleveren()]
             bericht = {"v": 1, "uitvoerder": "homeassistant", "adapter": self.opties.get(CONF_TOU) or "deye_tou",
-                       "niveau": self.niveau(), "standen": standen if self.mag_sturen() else [], "reactieMs": 60000,
-                       "profiel": PROFIEL_DEYE, "kanVastOntladen": False}
+                       "niveau": self.niveau(), "standen": standen if self.mag_sturen() else [], "reactieMs": 10000,
+                       "profiel": PROFIEL_DEYE, "kanVastOntladen": self.deye.terugleveren(), "regeltZelfOpMeter": True,
+                       "minSoc": round(self.deye.min_pct()), "maxSocNet": round(self.deye.max_pct()),
+                       "maxLaadW": self.deye.max_laad_w(), "maxOntlaadW": self.deye.max_ontlaad_w()}
             if not self.deye.klaar():
                 bericht["fout"] = "kies in de integratie de tijdprogramma's van je omvormer"
             elif not self.opties.get(CONF_BEDIENING, True):
@@ -135,6 +156,13 @@ class EmsUitvoerder:
         elif self.fout:
             bericht["fout"] = self.fout
         return bericht
+
+    async def async_stop(self, afsluiten: bool) -> None:
+        """Bij herladen of verwijderen de eigen instellingen terug. Bij het afsluiten van Home Assistant niet:
+        dan stuurt de integratie na de herstart gewoon verder, en schrijven we niet twee keer voor niets."""
+        if self.is_deye() and self.gestart and not afsluiten:
+            await self.deye.herstel(wissen=True)
+            self.gestart = False
 
     def _beperking(self) -> str:
         if self.pauze_tot > time.time():
@@ -239,25 +267,27 @@ class EmsUitvoerder:
 
     async def _tik_deye(self, nu: float, meting: ems_core.Meting, grenzen: ems_core.Grenzen) -> None:
         """Een Deye via zijn tijdprogramma's: geen bijregelen op de seconde, wel elk kwartier de goede opdracht."""
+        # De hoofdzekering regelt de uitvoerder zelf, stapsgewijs: geen fasestroom hier.
         wens = ems_core.deye_wens(self.plan, self.vorig_plan, nu, meting.soc, self.deye.spanning(), grenzen,
-                                  self.deye.max_pct(), self.deye.min_pct(), self.deye.max_stroom(), meting.max_fase_a)
+                                  self.deye.max_pct(), self.deye.min_pct(), self.deye.max_stroom(), None,
+                                  self.deye.max_laad_w(), self.deye.max_ontlaad_w(), self.deye.terugleveren())
         if self.mag_sturen():
             self._controleer_andere_ems()
             if not self.gestart:
+                # Eerst de instellingen van de bewoner bewaren: die gaan terug bij uitzetten.
+                await self.deye.bewaar_eigen_stand()
                 self.gestart, self.fout = True, ""
-                self.hub._log(1, "Energieplan stuurt nu de tijdprogramma's van je omvormer")
+                self.hub._log(1, "Energieplan stuurt nu je omvormer (tijdprogramma's); je eigen instellingen zijn bewaard")
                 self.hub._stuur_vermogens()
             vorige = self.deye.wens
-            await self.deye.zet(wens, forceer=vorige is None or vorige.stand != wens.stand)
+            await self.deye.zet(wens)
             if vorige is not None and vorige.stand != wens.stand:
                 self.hub._log(0, f"Batterij: {ems_core.ZINNEN.get(wens.stand, wens.stand).lower()}"
                                  + (f" ({wens.beperking.replace('_', ' ')})" if wens.beperking else ""))
         elif self.gestart:
-            # Netjes achterlaten: niet van het net laden, alleen de ondergrens. Dan doet hij zijn eigen zelfverbruik.
-            await self.deye.zet(ems_core.DeyeWens(False, self.deye.min_pct(), None, ems_core.ZELFVERBRUIK, ems_core.TERUGVAL, "uit"),
-                                forceer=True)
+            await self.deye.herstel(wissen=True)
             self.gestart = False
-            self.hub._log(0, "Energieplan: tijdprogramma's terug op zelfverbruik")
+            self.hub._log(0, "Energieplan: je omvormer staat weer op je eigen instellingen")
 
         if self.hub.verbinding.verbonden and json.dumps(self.vermogens(), sort_keys=True) != self._vermogens_gemeld:
             self.hub._stuur_vermogens()

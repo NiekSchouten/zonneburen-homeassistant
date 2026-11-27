@@ -333,7 +333,7 @@ def kies_opties(opties: list[str]) -> dict[str, str]:
 # Getallen die bij een omvormer horen maar de batterij niet sturen. De teruglevergrens van een Deye
 # (zero_export_power, 0-500 W) leek op een batterijvermogen: die werd op 0 gezet en de batterij nooit gestuurd.
 GEEN_BATTERIJVERMOGEN = (" zero export ", " export limit ", " peak shaving ", " max export ", " max import ", " pv power ",
-                         " generator ", " smartload ", " smart load ")
+                         " generator ", " smartload ", " smart load ", " program ")
 MIN_BEREIK_W = 1000
 
 
@@ -358,6 +358,13 @@ class DeyeTou:
     spanning: str | None = None
     min_soc: str | None = None
     merk: str = ""
+    vermogen: list[str] = field(default_factory=list)
+    werkmodus: str | None = None
+    patroon: str | None = None
+    max_laad_a: str | None = None
+    max_ontlaad_a: str | None = None
+    netladen: str | None = None
+    max_export: str | None = None
 
 
 def _programma(entity_id: str, deel: str) -> int | None:
@@ -398,6 +405,13 @@ def zoek_deye(entiteiten: list[Entiteit]) -> DeyeTou | None:
             stroom=een("number", "battery_grid_charging_current", "grid_charging_current", "grid_charge_current"),
             spanning=een("sensor", "battery_voltage"),
             min_soc=een("number", "battery_low_soc", "battery_shutdown_soc"),
+            vermogen=per_nummer("number", "power"),
+            werkmodus=een("select", "work_mode"),
+            patroon=een("select", "energy_pattern"),
+            max_laad_a=een("number", "battery_max_charging_current", "max_charging_current"),
+            max_ontlaad_a=een("number", "battery_max_discharging_current", "max_discharging_current"),
+            netladen=een("switch", "battery_grid_charging", "grid_charging"),
+            max_export=een("number", "grid_max_export_power", "max_export_power"),
             merk=tou.merk or tou.platform)
     return None
 

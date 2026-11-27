@@ -25,12 +25,37 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from . import historie, protocol
+from . import apparaat_regels, historie, protocol
+from .apparaten import ApparaatSturing
 from .const import (
-    CONF_ADRES, CONF_APPARAAT_ID, CONF_APPARATEN, CONF_BATTERIJ, CONF_BATTERIJ_OM, CONF_BEDIENING, CONF_EMS_AAN,
-    CONF_EMS_LADEN_POSITIEF, CONF_EMS_MAX_LAAD_W, CONF_EMS_MAX_ONTLAAD_W, CONF_EMS_MODUS, CONF_EMS_MODUS_STUREN,
-    CONF_EMS_MODUS_TERUG, CONF_EMS_NETDOEL, CONF_EMS_VERMOGEN, CONF_EMS_ZEKERING_A, CONF_NAAM, CONF_NET, CONF_NET_OM,
-    CONF_NET_TERUG, CONF_OVERIG, CONF_SOC, CONF_VERBRUIK, CONF_WIJK_AUTOMATISCH, CONF_ZON, DOMAIN, FIRMWARE, SIGNAAL_BIJGEWERKT,
+    CONF_ADRES,
+    CONF_APPARAAT_ID,
+    CONF_APPARATEN,
+    CONF_BATTERIJ,
+    CONF_BATTERIJ_OM,
+    CONF_BEDIENING,
+    CONF_EMS_AAN,
+    CONF_EMS_LADEN_POSITIEF,
+    CONF_EMS_MAX_LAAD_W,
+    CONF_EMS_MAX_ONTLAAD_W,
+    CONF_EMS_MODUS,
+    CONF_EMS_MODUS_STUREN,
+    CONF_EMS_MODUS_TERUG,
+    CONF_EMS_NETDOEL,
+    CONF_EMS_VERMOGEN,
+    CONF_EMS_ZEKERING_A,
+    CONF_NAAM,
+    CONF_NET,
+    CONF_NET_OM,
+    CONF_NET_TERUG,
+    CONF_OVERIG,
+    CONF_SOC,
+    CONF_VERBRUIK,
+    CONF_WIJK_AUTOMATISCH,
+    CONF_ZON,
+    DOMAIN,
+    FIRMWARE,
+    SIGNAAL_BIJGEWERKT,
 )
 from .ems import EmsUitvoerder
 from .verbinding import Verbinding
@@ -52,6 +77,7 @@ ANDERE_HUB_S = 3600   # niet elke minuut opnieuw melden
 
 INFO, GOED, LET_OP, ALARM = 0, 1, 2, 3
 STANDEN = {"on": 1, "auto": 0, "off": -1}
+SLIM_S = 30           # zo vaak kijken of thermostaten, boilers en witgoed iets anders moeten
 UIT = (STATE_UNAVAILABLE, STATE_UNKNOWN, "off", "idle")
 
 # Instellingen van de hub die hier geen betekenis hebben: de bron is Home Assistant zelf.
@@ -121,6 +147,11 @@ class ZonneburenHub:
         # Per plek wat Zonneburen het laatst van het apparaat wilde (entiteit, aan, temperatuur). Alleen als dat
         # verandert, wordt er geschakeld: wat de bewoner zelf aan- of uitzet, blijft zo staan.
         self._vorig_gewenst: dict[int, tuple] = {}
+        # Thermostaten, boilers en witgoed: veilig sturen, met de stand van voor Zonneburen bewaard.
+        self.sturing = ApparaatSturing(self)
+        # Net gekoppeld of terug naar slim regelen: niets doen tot de volgende grens van een blok in het plan.
+        self._overname: dict[int, tuple] = {}
+        self._volgende_slim = 0.0
 
     # ------------------------------------------------------------------ Levensloop
 
@@ -134,6 +165,7 @@ class ZonneburenHub:
             self.standen = [int(s) if s in (-1, 0, 1) else 0 for s in standen][: protocol.MAX_APPARATEN]
             self.standen += [0] * (protocol.MAX_APPARATEN - len(self.standen))
             self.ems.herstel(opgeslagen.get("emsplan"))
+        await self.sturing.laad()
         # Vanaf hier telt alleen nog een verandering: opstarten zet niets om.
         self._onthoud_gewenst()
 
@@ -169,6 +201,15 @@ class ZonneburenHub:
         self._bijgewerkt()
 
     async def async_stop(self) -> None:
+        from homeassistant.core import CoreState
+
+        afsluiten = self.hass.state in (CoreState.stopping, CoreState.final_write, CoreState.stopped)
+        await self.ems.async_stop(afsluiten=afsluiten)
+        if not afsluiten:
+            # Herladen of verwijderen: thermostaten en boilers terug op de temperatuur van de bewoner.
+            for apparaat in self._apparaten():
+                if apparaat["enabled"] and protocol.is_domein(apparaat["host"], "climate", "water_heater"):
+                    await self.sturing.herstel(apparaat)
         await self._async_bewaar()
         await self.verbinding.async_stop()
 
@@ -253,6 +294,9 @@ class ZonneburenHub:
 
         self.hass.async_create_task(self.ems.tik(net, bat, soc))
         self._volg_plan()
+        if nu >= self._volgende_slim:
+            self._volgende_slim = nu + SLIM_S
+            self.hass.async_create_task(self._stuur_slim())
 
         if nu >= self._volgende_live:
             self._volgende_live = nu + (LIVE_GEKEKEN_S if nu < self._kijken_tot else LIVE_RUSTIG_S)
@@ -497,6 +541,13 @@ class ZonneburenHub:
             if is_licht(apparaat):
                 self._vorig_gewenst.pop(i, None)
                 continue
+            if self._klasse(i, apparaat) != apparaat_regels.SCHAKELAAR:
+                await self._stuur_een(i, apparaat, forceer=i == forceer or alles)
+                continue
+            if i in self._overname and not (alles or i == forceer):
+                if self._overname[i] == dataclasses.astuple(self.ems.apparaat(i)):
+                    continue
+                del self._overname[i]
             gewenst = self._gewenst_met_temp(i, apparaat)
             vorig = self._vorig_gewenst.get(i)
             self._vorig_gewenst[i] = gewenst
@@ -505,8 +556,82 @@ class ZonneburenHub:
             if not (alles or i == forceer) and (nieuw or vorig == gewenst):
                 continue
             _, aan, temp = gewenst
-            if self._is_aan(apparaat["host"]) is not aan or temp is not None or apparaat["host"].split(".", 1)[0] in ("climate", "water_heater"):
+            # Een onbekend apparaat met vermogensmeting gaat nooit automatisch uit terwijl het draait.
+            if not aan and self._gewenst(i, apparaat)[1] != "Handmatig uit" and self.ems.soort(i).get("soort") is None \
+                    and self.sturing.uitstel_uit(apparaat):
+                self._vorig_gewenst[i] = vorig or (apparaat["host"], True, None)
+                continue
+            if self._is_aan(apparaat["host"]) is not aan or temp is not None:
                 await self._schakel(apparaat, aan, temp=temp)
+
+    def _klasse(self, i: int, apparaat: dict) -> str:
+        return apparaat_regels.klasse(apparaat["host"].split(".", 1)[0], self.ems.soort(i).get("soort"))
+
+    async def _stuur_slim(self) -> None:
+        """Elke halve minuut: thermostaten, boilers en witgoed. Er wordt alleen geschreven als er iets verandert."""
+        for i, apparaat in enumerate(self._apparaten()):
+            if (apparaat["enabled"] and apparaat["type"] == protocol.SOORT_HOME_ASSISTANT and apparaat["host"] and not is_licht(apparaat)
+                    and self._klasse(i, apparaat) != apparaat_regels.SCHAKELAAR):
+                await self._stuur_een(i, apparaat)
+
+    async def _stuur_een(self, i: int, apparaat: dict, forceer: bool = False) -> None:
+        aan, reden = self._gewenst(i, apparaat)
+        plan = self.ems.apparaat(i)
+        soort = self.ems.soort(i)
+        if self._klasse(i, apparaat) == apparaat_regels.THERMISCH:
+            uit_plan = reden.startswith("Energieplan")
+            wens = apparaat_regels.thermische_wens(reden, aan, plan.stand if uit_plan else "", bool(soort.get("magUit")))
+            temp = plan.temp if uit_plan else (apparaat["boostTemp"] or None) if wens == apparaat_regels.VERHOGEN else None
+            instellingen = {k: float(soort[v]) for k, v in (("omhoog", "omhoog"), ("omlaag", "omlaag"), ("min_temp", "minTemp"),
+                                                             ("max_temp", "maxTemp"), ("opwarmen", "opwarmen"))
+                            if isinstance(soort.get(v), (int, float)) and not isinstance(soort.get(v), bool)}
+            await self.sturing.thermisch(i, apparaat, wens, temp, instellingen, forceer=forceer and reden == "Noodstop")
+            return
+        # Witgoed: het plan zet hem aan, en hij gaat nooit uit terwijl hij draait.
+        if reden in ("Handmatig aan", "Handmatig uit"):
+            if forceer and self._is_aan(apparaat["host"]) is not aan:
+                await self._schakel(apparaat, aan)
+            return
+        plan_aan = bool(plan.aan) if plan.soort == "plan" else None
+        # Klaargezet via de webapp (de server zet de eindtijd in het plan): net zo als met de knop hier.
+        klaar_op = soort.get("klaarOp")
+        if (isinstance(klaar_op, (int, float)) and klaar_op > time.time() and i not in self.sturing.klaargezet
+                and i not in self.sturing.loopt_door and self.sturing.klaar_om.get(i) != klaar_op):
+            self.sturing.klaar_om[i] = float(klaar_op)
+            self.sturing.start_slim(i, float(klaar_op) - float(soort.get("duurMin") or 120) * 60)
+        await self.sturing.programma(i, apparaat, plan_aan)
+
+    def vermogen_gemeten(self, apparaat: dict) -> float | None:
+        """Alleen een echte meting: zonder sensor weten we niet of iets draait."""
+        waarde, eenheid = self._getal(apparaat.get("powerEntity"))
+        if waarde is None:
+            return None
+        return waarde * 1000 if eenheid == "kW" else waarde
+
+    async def klaarzetten(self, i: int, klaar_op: float | None) -> str | None:
+        """Start slim: het programma staat klaar, de stekker gaat uit tot het beste moment voor de eindtijd."""
+        apparaten = self._apparaten()
+        if not isinstance(i, int) or not 0 <= i < len(apparaten) or not apparaten[i]["enabled"] or not apparaten[i]["host"]:
+            return "apparaat niet gevonden"
+        apparaat = apparaten[i]
+        if klaar_op is None:
+            self.sturing.stop_slim(i)
+            self._log(INFO, f"{apparaat['name'] or i + 1}: slim starten geannuleerd")
+            if self._is_aan(apparaat["host"]) is False:
+                await self._schakel(apparaat, True)
+        else:
+            if klaar_op <= time.time():
+                return "kies een eindtijd in de toekomst"
+            duur = float(self.ems.soort(i).get("duurMin") or 120) * 60
+            self.sturing.start_slim(i, klaar_op - duur)
+            if self._is_aan(apparaat["host"]):
+                await self._schakel(apparaat, False)
+            self._log(INFO, f"{apparaat['name'] or i + 1}: klaargezet, klaar om "
+                            + dt_util.as_local(dt_util.utc_from_timestamp(klaar_op)).strftime("%H:%M"))
+        self._publiceer_huis("hub/klaarzetten", json.dumps({"i": i, "klaar": int(klaar_op) if klaar_op else None}))
+        self._volgende_info = 0
+        self._bijgewerkt()
+        return None
 
     async def _schakel(self, apparaat: dict, aan: bool, dim: int | None = None, temp: float | None = None) -> bool:
         entiteit = apparaat["host"]
@@ -515,6 +640,9 @@ class ZonneburenHub:
             return False
         domein = entiteit.split(".", 1)[0]
         temperatuur = temp if temp is not None else apparaat["boostTemp"] if aan else apparaat["normalTemp"]
+        if domein in ("climate", "water_heater") and not temperatuur and not aan:
+            # Vangnet: verwarming, koeling en boilers zet Zonneburen nooit zomaar uit.
+            return True
         try:
             if domein in ("climate", "water_heater") and temperatuur:
                 await self.hass.services.async_call(domein, "set_temperature", {"entity_id": entiteit, "temperature": temperatuur}, blocking=True)
@@ -553,6 +681,8 @@ class ZonneburenHub:
                 continue
             staat = self.hass.states.get(apparaat["host"]) if apparaat["host"] else None
             _, reden = self._gewenst(i, apparaat)
+            if not is_licht(apparaat) and self.standen[i] == 0 and (status := self.sturing.status.get(i)):
+                reden = status
             regel = {"i": i, "name": apparaat["name"], "role": apparaat["role"], "on": bool(self._is_aan(apparaat["host"])) if staat else False,
                      "mode": 0 if is_licht(apparaat) else self.standen[i], "reason": reden, "ok": staat is not None and staat.state != STATE_UNAVAILABLE,
                      "watts": apparaat["watts"]}
@@ -694,6 +824,11 @@ class ZonneburenHub:
                 opties[NAAR_OPTIE[sleutel]] = waarde
             elif sleutel == "loads":
                 opties[CONF_APPARATEN] = protocol.normaliseer_apparaten(waarde)
+                # Verwijderd of uitgezet: terug zoals het voor Zonneburen stond.
+                blijft = {a["host"] for a in opties[CONF_APPARATEN] if a["enabled"]}
+                for oud in self._apparaten():
+                    if oud["enabled"] and oud["host"] and oud["host"] not in blijft:
+                        self.hass.async_create_task(self.sturing.herstel(oud, vergeten=True))
             elif sleutel not in ("source", "meterType", "haUrl", "haToken", "pollSec"):
                 overig[sleutel] = waarde
         opties[CONF_OVERIG] = overig
@@ -716,6 +851,12 @@ class ZonneburenHub:
                 return "schakelen mislukt"
             return None
         self.standen[i] = STANDEN[modus]
+        if modus == "auto":
+            # Terug naar slim regelen: niets omzetten tot de volgende grens van een blok in het plan.
+            self._overname[i] = dataclasses.astuple(self.ems.apparaat(i))
+            self._vorig_gewenst[i] = (apparaat["host"], bool(self._is_aan(apparaat["host"])), None)
+            if self._klasse(i, apparaat) == apparaat_regels.SCHAKELAAR:
+                return None
         await self._pas_toe(forceer=i)
         return None
 
@@ -745,6 +886,11 @@ class ZonneburenHub:
                 await self.hass.services.async_call(domein, "set_value", {"entity_id": staat.entity_id, "value": waarde}, blocking=True)
         except Exception as fout:  # noqa: BLE001 - de service van een integratie kan van alles gooien
             return f"instellen mislukt ({fout})"
+        if domein in ("climate", "water_heater"):
+            # Wat de bewoner zelf kiest, is de nieuwe basis.
+            self.sturing.basis[staat.entity_id] = float(waarde)
+            self.sturing.limiet.noteer(staat.entity_id, float(waarde), time.time())
+            self.sturing.bewaar()
         self._log(INFO, f"{apparaten[i]['name'] or staat.entity_id}: temperatuur op {waarde:g} °C gezet vanuit de webapp")
         self._volgende_info = 0
         return None

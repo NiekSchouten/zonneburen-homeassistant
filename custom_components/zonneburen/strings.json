@@ -102,7 +102,7 @@
       },
       "deye": {
         "title": "Deye / Sunsynk: tijdprogramma's",
-        "description": "Zonneburen zet de zes tijdprogramma's van je omvormer op 00:00, 04:00, 08:00, 12:00, 16:00 en 20:00 en geeft ze elk kwartier dezelfde opdracht: **van het net laden** tot een lading, **de lading vasthouden**, of **zelfverbruik** tot de ondergrens. Ontladen met een vast vermogen kan een Deye zo niet; dat plant de webapp dan ook niet.\n\nGevonden:\n{gevonden}",
+        "description": "Zonneburen zet de zes tijdprogramma's van je omvormer op 00:00, 04:00, 08:00, 12:00, 16:00 en 20:00 en geeft ze elk kwartier dezelfde opdracht: **van het net laden**, **de lading vasthouden**, **zelfverbruik** tot de ondergrens of, als je dat toestaat, **terugleveren uit de batterij**. Je eigen instellingen worden eerst bewaard en gaan terug als het sturen stopt.\n\nGevonden:\n{gevonden}",
         "data": {
           "ems_tou": "Time of Use (aan/uit)",
           "ems_tou_laden": "Laden per programma (Grid / Disabled)",
@@ -113,7 +113,18 @@
           "ems_tou_min_soc": "Ondergrens van de omvormer (optioneel)",
           "ems_tou_max_pct": "Netladen hooguit tot",
           "ems_tou_min_pct": "Ondergrens als de omvormer er geen meldt",
-          "ems_zekering_a": "Hoofdzekering (optioneel)"
+          "ems_zekering_a": "Hoofdzekering (optioneel)",
+          "ems_tou_werkmodus": "Werkmodus (work_mode)",
+          "ems_tou_patroon": "Energiepatroon (energy_pattern)",
+          "ems_tou_vermogen": "Vermogen per programma (W)",
+          "ems_tou_max_laad_a": "Max laadstroom (A)",
+          "ems_tou_max_ontlaad_a": "Max ontlaadstroom (A)",
+          "ems_tou_netladen": "Netladen toegestaan (schakelaar)",
+          "ems_tou_max_export": "Max teruglevering (W)",
+          "ems_tou_max_laad_w": "Laden hooguit",
+          "ems_tou_max_ontlaad_w": "Ontladen hooguit",
+          "ems_tou_terugleveren": "Terugleveren uit de batterij toestaan",
+          "ems_tou_fasen": "Stroom per fase (optioneel)"
         },
         "data_description": {
           "ems_tou_laden": "De zes keuzes Program 1-6 Charging. Bij laden zet Zonneburen ze op Grid, anders op Disabled.",
@@ -121,7 +132,18 @@
           "ems_tou_stroom": "Uit het vermogen van het plan en de accuspanning rekent Zonneburen de laadstroom uit.",
           "ems_tou_max_pct": "Hoe vol de batterij van het net hooguit mag worden. Standaard 90 %.",
           "ems_tou_min_pct": "Wordt gebruikt als er geen ondergrens van de omvormer is gekozen. Standaard 20 %.",
-          "ems_zekering_a": "Komt een fase in de buurt van de zekering, dan laadt de batterij minder hard."
+          "ems_zekering_a": "Komt een fase in de buurt van de zekering, dan laadt de batterij minder hard.",
+          "ems_tou_werkmodus": "Zonneburen zet hem op Zero Export To CT (zelfverbruik op de meter), en alleen bij terugleveren even op Export First.",
+          "ems_tou_patroon": "Komt op Battery First te staan.",
+          "ems_tou_vermogen": "De zes getallen Program 1-6 Power: hoe hard de batterij in dat tijdvak mag.",
+          "ems_tou_max_laad_a": "Alleen bij standby op 0; anders blijft je eigen waarde staan.",
+          "ems_tou_max_ontlaad_a": "Volgt het ontlaadvermogen uit het plan.",
+          "ems_tou_netladen": "Uit bij Alleen zon opslaan, verder aan.",
+          "ems_tou_max_export": "Alleen gebruikt als terugleveren uit de batterij aan staat.",
+          "ems_tou_max_laad_w": "Standaard 10.000 W.",
+          "ems_tou_max_ontlaad_w": "Standaard 10.000 W.",
+          "ems_tou_terugleveren": "Standaard uit. Aan: bij een dure prijs mag de batterij naar het net (Export First).",
+          "ems_tou_fasen": "Voor de hoofdzekering: komt een fase binnen 2 A van de zekering, dan laadt de batterij 10 A minder."
         }
       }
     },
@@ -238,7 +260,7 @@
       },
       "deye": {
         "title": "Deye / Sunsynk: tijdprogramma's",
-        "description": "Zonneburen zet de zes tijdprogramma's van je omvormer op 00:00, 04:00, 08:00, 12:00, 16:00 en 20:00 en geeft ze elk kwartier dezelfde opdracht: **van het net laden** tot een lading, **de lading vasthouden**, of **zelfverbruik** tot de ondergrens. Ontladen met een vast vermogen kan een Deye zo niet; dat plant de webapp dan ook niet.\n\nGevonden:\n{gevonden}",
+        "description": "Zonneburen zet de zes tijdprogramma's van je omvormer op 00:00, 04:00, 08:00, 12:00, 16:00 en 20:00 en geeft ze elk kwartier dezelfde opdracht: **van het net laden**, **de lading vasthouden**, **zelfverbruik** tot de ondergrens of, als je dat toestaat, **terugleveren uit de batterij**. Je eigen instellingen worden eerst bewaard en gaan terug als het sturen stopt.\n\nGevonden:\n{gevonden}",
         "data": {
           "ems_tou": "Time of Use (aan/uit)",
           "ems_tou_laden": "Laden per programma (Grid / Disabled)",
@@ -249,7 +271,18 @@
           "ems_tou_min_soc": "Ondergrens van de omvormer (optioneel)",
           "ems_tou_max_pct": "Netladen hooguit tot",
           "ems_tou_min_pct": "Ondergrens als de omvormer er geen meldt",
-          "ems_zekering_a": "Hoofdzekering (optioneel)"
+          "ems_zekering_a": "Hoofdzekering (optioneel)",
+          "ems_tou_werkmodus": "Werkmodus (work_mode)",
+          "ems_tou_patroon": "Energiepatroon (energy_pattern)",
+          "ems_tou_vermogen": "Vermogen per programma (W)",
+          "ems_tou_max_laad_a": "Max laadstroom (A)",
+          "ems_tou_max_ontlaad_a": "Max ontlaadstroom (A)",
+          "ems_tou_netladen": "Netladen toegestaan (schakelaar)",
+          "ems_tou_max_export": "Max teruglevering (W)",
+          "ems_tou_max_laad_w": "Laden hooguit",
+          "ems_tou_max_ontlaad_w": "Ontladen hooguit",
+          "ems_tou_terugleveren": "Terugleveren uit de batterij toestaan",
+          "ems_tou_fasen": "Stroom per fase (optioneel)"
         },
         "data_description": {
           "ems_tou_laden": "De zes keuzes Program 1-6 Charging. Bij laden zet Zonneburen ze op Grid, anders op Disabled.",
@@ -257,7 +290,18 @@
           "ems_tou_stroom": "Uit het vermogen van het plan en de accuspanning rekent Zonneburen de laadstroom uit.",
           "ems_tou_max_pct": "Hoe vol de batterij van het net hooguit mag worden. Standaard 90 %.",
           "ems_tou_min_pct": "Wordt gebruikt als er geen ondergrens van de omvormer is gekozen. Standaard 20 %.",
-          "ems_zekering_a": "Komt een fase in de buurt van de zekering, dan laadt de batterij minder hard."
+          "ems_zekering_a": "Komt een fase in de buurt van de zekering, dan laadt de batterij minder hard.",
+          "ems_tou_werkmodus": "Zonneburen zet hem op Zero Export To CT (zelfverbruik op de meter), en alleen bij terugleveren even op Export First.",
+          "ems_tou_patroon": "Komt op Battery First te staan.",
+          "ems_tou_vermogen": "De zes getallen Program 1-6 Power: hoe hard de batterij in dat tijdvak mag.",
+          "ems_tou_max_laad_a": "Alleen bij standby op 0; anders blijft je eigen waarde staan.",
+          "ems_tou_max_ontlaad_a": "Volgt het ontlaadvermogen uit het plan.",
+          "ems_tou_netladen": "Uit bij Alleen zon opslaan, verder aan.",
+          "ems_tou_max_export": "Alleen gebruikt als terugleveren uit de batterij aan staat.",
+          "ems_tou_max_laad_w": "Standaard 10.000 W.",
+          "ems_tou_max_ontlaad_w": "Standaard 10.000 W.",
+          "ems_tou_terugleveren": "Standaard uit. Aan: bij een dure prijs mag de batterij naar het net (Export First).",
+          "ems_tou_fasen": "Voor de hoofdzekering: komt een fase binnen 2 A van de zekering, dan laadt de batterij 10 A minder."
         }
       }
     },
