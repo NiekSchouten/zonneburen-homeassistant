@@ -18,6 +18,8 @@ TOPIC_NOODSTOP = "zonneburen/noodstop"
 TOPIC_WEEKRAPPORT = "zonneburen/weekrapport"
 TOPIC_WIJK_STATUS = "zonneburen/wijk/status"
 TOPIC_PRIJZEN = "zonneburen/wijk/prijzen"
+# De wijk-sensor van de server: de huizen die zichtbaar willen zijn, de ranglijst en de buurtbatterij.
+TOPIC_WIJK_ATTRIBUTEN = "zonneburen/wijk/attributen"
 HUIS = "zonneburen/huis/"
 STATUS = "zonneburen/status/"
 
@@ -123,6 +125,74 @@ def andere_hub(payload: bytes | str, adres: str, eigen_hub_id: str) -> str | Non
     if hub_id == eigen_hub_id:
         return None
     return hub_id if isinstance(hub_id, str) and hub_id else "blueprint"
+
+
+# Het schema voor de kaarten (hub/planweergave): per kwartier wat de webapp in de tabel laat zien.
+SCHEMA_KOLOMMEN = ("stand", "prijsIn", "prijsUit", "zonW", "verbruikW", "batW", "netW", "netDoelW", "socEind", "voorspeld")
+MAX_SCHEMA = 300
+
+
+def _getal_of_none(waarde) -> float | None:
+    return float(waarde) if isinstance(waarde, (int, float)) and not isinstance(waarde, bool) else None
+
+
+def lees_schema(payload: bytes | str) -> dict | None:
+    """Een leeg bericht betekent: geen plan meer ({}). Een kapot bericht: None, dan blijft het oude staan.
+    Rijen worden [begin, stand, prijsIn, prijsUit, zonW, verbruikW, batW, netW, netDoelW, socEind, voorspeld]."""
+    if not payload:
+        return {}
+    bericht = lees_json(payload)
+    if not bericht or bericht.get("v") != 1:
+        return None
+    t0, stap = bericht.get("t0"), bericht.get("stap")
+    kolommen, rijen = bericht.get("kolommen"), bericht.get("s")
+    if not isinstance(t0, int) or stap != 900 or not isinstance(kolommen, list) or not isinstance(rijen, list) or len(rijen) > MAX_SCHEMA:
+        return None
+    plek = {naam: kolommen.index(naam) for naam in SCHEMA_KOLOMMEN if naam in kolommen}
+    if "stand" not in plek:
+        return None
+    uit = []
+    for i, rij in enumerate(rijen):
+        if not isinstance(rij, list):
+            return None
+        waarde = lambda naam: rij[plek[naam]] if naam in plek and plek[naam] < len(rij) else None  # noqa: E731
+        stand = waarde("stand")
+        if not isinstance(stand, str):
+            return None
+        uit.append([t0 + i * stap, stand[:20]] + [_getal_of_none(waarde(k)) for k in SCHEMA_KOLOMMEN[1:9]]
+                   + [bool(waarde("voorspeld"))])
+    lasten = []
+    for last in bericht.get("lasten") or []:
+        if isinstance(last, dict) and isinstance(last.get("van"), int) and isinstance(last.get("tot"), int):
+            blok = {"naam": str(last.get("naam") or "Apparaat")[:24], "stand": str(last.get("stand") or "")[:20],
+                    "van": last["van"], "tot": last["tot"]}
+            if isinstance(last.get("apparaat"), int) and not isinstance(last.get("apparaat"), bool):
+                blok["i"] = last["apparaat"]
+            lasten.append(blok)
+    verwacht = bericht.get("verwacht") if isinstance(bericht.get("verwacht"), dict) else {}
+    geldig_tot = bericht.get("geldigTot")
+    return {
+        "plan_id": str(bericht.get("planId") or "")[:40], "gemaakt": bericht.get("gemaakt"),
+        "geldig_tot": geldig_tot if isinstance(geldig_tot, int) else t0 + len(uit) * stap,
+        "sturen": bool(bericht.get("sturen")), "bron": str(bericht.get("bron") or "")[:20],
+        "rijen": uit, "lasten": lasten[:48],
+        "verwacht": {k: v for k, v in verwacht.items() if isinstance(v, (int, float)) and not isinstance(v, bool)},
+    }
+
+
+def lees_wijk(payload: bytes | str) -> dict | None:
+    """De attributen van de wijk-sensor van de server, beperkt tot wat de kaarten gebruiken."""
+    bericht = lees_json(payload)
+    if not bericht:
+        return None
+    uit = {k: bericht[k] for k in ("noodstop", "beursprijs", "online", "totaal", "gedeeld_nu_watt") if k in bericht}
+    huizen = bericht.get("huizen")
+    if isinstance(huizen, list):
+        uit["huizen"] = [h for h in huizen if isinstance(h, dict) and isinstance(h.get("adres"), str)][:200]
+    for sleutel in ("ranglijst", "buurtbatterij"):
+        if isinstance(bericht.get(sleutel), dict):
+            uit[sleutel] = bericht[sleutel]
+    return uit
 
 
 def lees_weekrapport(payload: bytes | str, adres: str) -> dict | None:

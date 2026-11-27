@@ -366,3 +366,23 @@ async def test_een_ander_apparaat_bedienen_zet_de_rest_niet_terug(hass, hub):
     hub._bij_bericht(protocol.huis_topic(ADRES, "hub/opdracht"), opdracht("modus", i=0, modus="on"))
     await hass.async_block_till_done()
     assert not uit
+
+
+async def test_schema_en_wijk_komen_in_de_sensoren(hass, hub):
+    schema = {"v": 1, "planId": "p1", "gemaakt": int(time.time()), "geldigTot": int(time.time()) // 900 * 900 + 7200,
+              "t0": int(time.time()) // 900 * 900, "stap": 900, "sturen": False,
+              "kolommen": ["stand", "prijsIn", "prijsUit", "zonW", "verbruikW", "batW", "netW", "netDoelW", "socEind"],
+              "s": [["netladen", 0.2, 0.1, 0, 500, -2000, 2500, 2500, 60]] * 8, "lasten": [], "verwacht": {"besparingBatterij": 0.9}}
+    hub._verwerk(protocol.huis_topic(ADRES, "hub/planweergave"), json.dumps(schema).encode())
+    hub._verwerk(protocol.TOPIC_WIJK_ATTRIBUTEN, json.dumps({"online": 2, "huizen": [{"adres": ADRES, "status": "deelt"}],
+                                                             "buurtbatterij": {"procent": 42, "aantal": 3}, "gedeeld_nu_watt": 800}).encode())
+    await hass.async_block_till_done()
+
+    plan = next(s for s in hass.states.async_all("sensor") if s.attributes.get("zonneburen") == "energieplan")
+    assert plan.state == "Goedkoop bijladen van het net"
+    assert plan.attributes["advies"] is True and len(plan.attributes["schema"]) >= 7
+    assert plan.attributes["kwartieren"][0][1] == "netladen"
+    wijk = next(s for s in hass.states.async_all("sensor") if s.attributes.get("zonneburen") == "wijk")
+    assert wijk.attributes["mijn_adres"] == ADRES and wijk.attributes["huizen"][0]["status"] == "deelt"
+    bb = next(s for s in hass.states.async_all("sensor") if s.attributes.get("zonneburen") == "buurtbatterij")
+    assert bb.state == "42" and bb.attributes["gedeeld_nu_watt"] == 800

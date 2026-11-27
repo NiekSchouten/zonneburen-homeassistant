@@ -18,7 +18,7 @@ from .entiteit import ZonneburenEntiteit
 
 async def async_setup_entry(hass: HomeAssistant, entry: ZonneburenConfigEntry, voeg_toe: AddEntitiesCallback) -> None:
     hub = entry.runtime_data
-    voeg_toe([WijkOverschot(hub), Beursprijs(hub), GedeeldDezeWeek(hub), Energieplan(hub), VerwachteBesparing(hub)])
+    voeg_toe([WijkOverschot(hub), Beursprijs(hub), GedeeldDezeWeek(hub), Energieplan(hub), VerwachteBesparing(hub), Buurtbatterij(hub)])
 
     # Per apparaat dat in het energieplan staat een sensor met zijn volgende blok. Het plan komt pas
     # na het verbinden binnen en kan later apparaten toevoegen: daarom bij elke verandering kijken.
@@ -55,9 +55,12 @@ def klok(unix: float, nu: float) -> str:
 
 
 class WijkOverschot(ZonneburenEntiteit, SensorEntity):
+    """Het overschot van de wijk, met de huizen en de ranglijst voor de wijkkaart als attributen."""
+
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _unrecorded_attributes = frozenset({"huizen", "ranglijst", "buurtbatterij"})
 
     def __init__(self, hub) -> None:
         super().__init__(hub, "wijk_overschot")
@@ -65,6 +68,36 @@ class WijkOverschot(ZonneburenEntiteit, SensorEntity):
     @property
     def native_value(self) -> float | None:
         return self.hub.wijk_overschot
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        # mijn_adres: zo markeert de wijkkaart je eigen huis zonder dat je iets instelt.
+        return {"zonneburen": "wijk", "mijn_adres": self.hub.adres, **self.hub.wijk}
+
+
+class Buurtbatterij(ZonneburenEntiteit, SensorEntity):
+    """De thuisbatterijen van de deelnemers samen: hoe vol, en wat ze nu met de wijk delen."""
+
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:home-battery-outline"
+
+    def __init__(self, hub) -> None:
+        super().__init__(hub, "buurtbatterij")
+
+    @property
+    def _bb(self) -> dict:
+        bb = self.hub.wijk.get("buurtbatterij")
+        return bb if isinstance(bb, dict) else {}
+
+    @property
+    def native_value(self) -> float | None:
+        procent = self._bb.get("procent")
+        return procent if isinstance(procent, (int, float)) else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"zonneburen": "buurtbatterij", "gedeeld_nu_watt": self.hub.wijk.get("gedeeld_nu_watt"), **self._bb}
 
 
 class Beursprijs(ZonneburenEntiteit, SensorEntity):
@@ -101,24 +134,49 @@ class Energieplan(ZonneburenEntiteit, SensorEntity):
 
     _attr_icon = "mdi:battery-clock"
     # Het hele plan hoort niet elk kwartier in de database van de recorder.
-    _unrecorded_attributes = frozenset({"blokken", "apparaatblokken", "kwartieren"})
+    _unrecorded_attributes = frozenset({"blokken", "apparaatblokken", "kwartieren", "schema", "schema_lasten"})
 
     def __init__(self, hub) -> None:
         super().__init__(hub, "energieplan")
 
+    def _schema_nu(self, nu: float) -> list | None:
+        """De rij van dit kwartier uit het schema, of None."""
+        schema = self.hub.ems.schema
+        if not schema:
+            return None
+        return next((r for r in schema["rijen"] if r[0] <= nu < r[0] + 900), None)
+
     @property
     def native_value(self) -> str | None:
         laatste = self.hub.ems.laatste
-        if not self.hub.ems.plan and not laatste:
-            return None
+        if self.hub.ems.plan and laatste:
+            return ems_core.ZINNEN[laatste.stand]
+        # Alleen advies: dan wat het plan nu zou doen.
+        if (rij := self._schema_nu(time.time())) is not None:
+            return ems_core.ZINNEN.get(rij[1], rij[1])
         return ems_core.ZINNEN[laatste.stand] if laatste else None
 
     @property
     def extra_state_attributes(self) -> dict:
         ems = self.hub.ems
         attributen = ems.info()
+        attributen["zonneburen"] = "energieplan"
         if ems.laatste and ems.laatste.afwijking:
             attributen["afwijking"] = ems.laatste.afwijking
+        nu = time.time()
+        if schema := ems.schema:
+            # Het hele schema, vanaf dit kwartier: [begin, stand, prijsIn, prijsUit, zonW, verbruikW, batW, netW,
+            # netDoelW, socEind, voorspeld]. Voor de kaart Per kwartier.
+            rijen = [r for r in schema["rijen"] if r[0] + 900 > nu][:192]
+            attributen.update(schema=rijen, schema_lasten=[l for l in schema["lasten"] if l["tot"] > nu],
+                              advies=not schema["sturen"], schema_plan_id=schema["plan_id"])
+            if not ems.plan:
+                attributen.update(
+                    plan_id=schema["plan_id"], geldig_tot=schema["geldig_tot"],
+                    blokken=schema_blokken(rijen),
+                    apparaatblokken=[{"i": l.get("i"), "naam": l["naam"], "van": l["van"], "tot": l["tot"], "stand": l["stand"],
+                                      "zin": ems_core.BLOK_ZINNEN.get(l["stand"], "Aan")} for l in attributen["schema_lasten"]],
+                    kwartieren=[[r[0], r[1], r[9], r[2]] for r in rijen[:144]])
         if ems.plan:
             nu = time.time()
             attributen.update(
@@ -132,6 +190,19 @@ class Energieplan(ZonneburenEntiteit, SensorEntity):
         return attributen
 
 
+def schema_blokken(rijen: list, maximaal: int = 6) -> list[dict]:
+    """Opeenvolgende kwartieren met dezelfde stand samen, zoals ems_core.blokken voor het plan."""
+    uit: list[dict] = []
+    for r in rijen:
+        if uit and uit[-1]["stand"] == r[1] and uit[-1]["tot"] == r[0]:
+            uit[-1]["tot"] = r[0] + 900
+        elif len(uit) < maximaal:
+            uit.append({"stand": r[1], "van": r[0], "tot": r[0] + 900, "zin": ems_core.ZINNEN.get(r[1], r[1])})
+        else:
+            break
+    return uit
+
+
 class VerwachteBesparing(ZonneburenEntiteit, SensorEntity):
     _attr_native_unit_of_measurement = "EUR"
     _attr_suggested_display_precision = 2
@@ -140,15 +211,18 @@ class VerwachteBesparing(ZonneburenEntiteit, SensorEntity):
     def __init__(self, hub) -> None:
         super().__init__(hub, "verwachte_besparing")
 
+    def _verwacht(self) -> dict:
+        plan, schema = self.hub.ems.plan, self.hub.ems.schema
+        return (plan.verwacht if plan else None) or (schema["verwacht"] if schema else None) or {}
+
     @property
     def native_value(self) -> float | None:
-        plan = self.hub.ems.plan
-        return plan.verwacht.get("besparingBatterij") if plan else None
+        return self._verwacht().get("besparingBatterij")
 
     @property
     def extra_state_attributes(self) -> dict | None:
-        plan = self.hub.ems.plan
-        return {"door_slim_sturen": plan.verwacht.get("besparingSturen")} if plan and plan.verwacht else None
+        verwacht = self._verwacht()
+        return {"door_slim_sturen": verwacht.get("besparingSturen")} if verwacht else None
 
 
 class ApparaatPlan(ZonneburenEntiteit, SensorEntity):
