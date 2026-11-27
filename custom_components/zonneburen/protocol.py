@@ -54,12 +54,13 @@ def apparaat_id(instantie: str) -> str:
 
 
 def bouw_telemetrie(adres: str, hub_id: str, versie: str, meting: dict, soc: float | None,
-                    prijs: float | None, apparaten_w: dict[int, int], eigen_zon: bool) -> dict:
+                    prijs: float | None, apparaten_w: dict[int, int], eigen_zon: bool,
+                    per_apparaat: list[list[int]] | None = None) -> dict:
     boiler = apparaten_w.get(ROL_BOILER, 0)
     laadpaal = apparaten_w.get(ROL_LAADPAAL, 0)
     airco = apparaten_w.get(ROL_AIRCO, 0)
     overig = apparaten_w.get(ROL_ANDERS, 0) + apparaten_w.get(ROL_LICHT, 0)
-    return {
+    uit = {
         "blueprint_versie": versie,
         "hub_id": hub_id,
         "hardware_token": adres,
@@ -77,6 +78,11 @@ def bouw_telemetrie(adres: str, hub_id: str, versie: str, meting: dict, soc: flo
         },
         "statussen": {"ev_ingeplugd": None, "eigen_zon_prioriteit": eigen_zon},
     }
+    # Het vermogen van elk apparaat, ook buiten de wijkstroom: zo laat de server de apparaten uit het
+    # energieplan weg uit het basisverbruik, anders tellen ze in de verwachting dubbel.
+    if per_apparaat is not None:
+        uit["apparaten_w"] = per_apparaat
+    return uit
 
 
 def bouw_status(adres: str, online: bool) -> str:

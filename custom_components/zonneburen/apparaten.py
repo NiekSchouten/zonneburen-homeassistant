@@ -44,6 +44,7 @@ class ApparaatSturing:
         self._vorige_wens: dict[str, str] = {}
         self._overgeslagen: set[str] = set()
         self._ratelimit_gemeld: set[str] = set()
+        self._legionella_gemeld: set[str] = set()
         self.status: dict[int, str] = {}
 
     # ------------------------------------------------------------------ Opslaan
@@ -173,6 +174,13 @@ class ApparaatSturing:
                 wens = r.NORMAAL
         else:
             self._besparen_sinds.pop(e, None)
+        # Legionella (60 °C of meer) alleen als de boiler dat haalt; anders gewoon opwarmen en het één keer melden.
+        tmax = float(a.get("max_temp", 35 if domein == "climate" else 80))
+        if domein == "water_heater" and plan_temp is not None and plan_temp >= 60 and tmax < 60:
+            if e not in self._legionella_gemeld:
+                self._legionella_gemeld.add(e)
+                self.hub._log(2, f"{apparaat['name'] or e} haalt geen {plan_temp:g} °C: gebruik de desinfectiefunctie van het toestel")
+            plan_temp = None
         # Een boiler die al bijna op temperatuur is, hoeft niet extra te stoken.
         doel = r.thermisch_doel(domein, wens, basis, r.Grenzen(float(a.get("min_temp", 5)), float(a.get("max_temp", 35 if domein == "climate" else 80)),
                                                               stap, staat.state == "cool"), plan_temp, instellingen)

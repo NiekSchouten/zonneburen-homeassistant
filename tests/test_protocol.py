@@ -31,6 +31,14 @@ def test_telemetrie_heeft_de_velden_van_de_server():
     assert bericht["statussen"]["ev_ingeplugd"] is None
 
 
+def test_telemetrie_met_het_vermogen_per_apparaat():
+    # Alles wat draait, niet alleen op wijkstroom: zo laat de server de apparaten uit het plan weg uit het basisverbruik.
+    bericht = p.bouw_telemetrie(ADRES, "x", "v", {"afname": 3300, "terug": 0}, None, None, {}, False, [[0, 2300], [2, 0]])
+    assert bericht["apparaten_w"] == [[0, 2300], [2, 0]]
+    assert bericht["p2p_meters"]["totaal_actief_p2p_watt"] == 0      # de verrekening blijft alleen wijkstroom
+    assert "apparaten_w" not in p.bouw_telemetrie(ADRES, "x", "v", {"afname": 0, "terug": 0}, None, None, {}, False)
+
+
 def test_zonder_batterij_en_prijs_stuurt_hij_null():
     bericht = p.bouw_telemetrie(ADRES, "x", "v", {"afname": 0, "terug": 300}, None, None, {}, True)
     assert bericht["accu_soc"] is None and bericht["beursprijs"] is None

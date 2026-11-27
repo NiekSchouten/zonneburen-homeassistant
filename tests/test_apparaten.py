@@ -259,3 +259,16 @@ async def test_terug_naar_slim_regelen_zet_niets_om_tot_het_volgende_blok(hass, 
     await hub._pas_toe()
     await hass.async_block_till_done()
     assert [c for c in d("homeassistant", "turn_off") if c.data["entity_id"] == "switch.boiler"] == []
+
+
+async def test_legionella_alleen_als_de_boiler_dat_haalt(hass, hub):
+    d = Diensten(hass)
+    hass.states.async_set("water_heater.boiler", "heat_pump", {"temperature": 48, "current_temperature": 40, "min_temp": 30,
+                                                              "max_temp": 55, "operation_list": ["off", "heat_pump", "performance"]})
+    stuur(hub, [{"id": "wpboiler", "stand": "aanraden", "van": 0, "tot": 1800, "apparaat": 1, "actie": "aan", "temp": 60,
+                 "reden": "legionellaspoeling"}])
+    await ronde(hass, hub, d)
+    assert laatste_temp(d, "water_heater", "water_heater.boiler") == 50       # gewoon opwarmen, geen 55 of 60
+    assert any("desinfectiefunctie" in r["m"] for r in hub.logboek)
+    assert d.uit() == []
+

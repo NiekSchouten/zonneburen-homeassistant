@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.1
+
+**Herstart nodig:** ja, er is Python-code gewijzigd.
+
+- **Telemetrie per apparaat.** Het gemeten vermogen van elk apparaat gaat mee in de telemetrie (`apparaten_w`).
+  Zo kan de webapp de auto, de boiler en het witgoed uit het basisverbruik halen. Voorheen telden ze dubbel in
+  de verbruiksverwachting.
+- **Warmtepompboiler.** Haalt de boiler geen 60 °C, dan slaat Zonneburen de legionellaspoeling over. Je krijgt
+  een melding dat je de desinfectiefunctie van het toestel zelf gebruikt.
+- **Geen waarschuwing meer bij subapparaten.** Bij het zoeken naar apparaten kwam er een waarschuwing over
+  `ChildDeviceEntry` (Home Assistant 2026.11). Die is weg.
+
 ## 0.10.0
 
 **Herstart nodig:** ja. Er zijn nieuwe entiteiten: per wasmachine, vaatwasser of droger *slim starten*,
