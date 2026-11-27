@@ -50,7 +50,7 @@ async def hub(hass):
 def plan(stand, bat_w, soc_eind):
     t0 = int(time.time()) // 900 * 900
     rijen = [[stand, 1000 if stand == "netladen" else None, bat_w, soc_eind, 0.2, 0.1]] * 8
-    return json.dumps({"v": 1, "planId": f"p-{stand}", "gemaakt": t0 - 60, "geldigTot": t0 + 8 * 900, "t0": t0, "stap": 900,
+    return json.dumps({"v": 1, "planId": f"p-{stand}-{bat_w}", "gemaakt": t0 - 60, "geldigTot": t0 + 8 * 900, "t0": t0, "stap": 900,
                        "grenzen": {"maxLaadW": 6000, "maxOntlaadW": 6000}, "s": rijen}).encode()
 
 
@@ -151,3 +151,33 @@ async def test_een_vermogen_uit_een_oude_config_blijft_het_profiel_vermogen(hass
         await hass.async_block_till_done()
     assert entry.options["ems_profiel"] == "vermogen" and entry.options["ems_vermogen"] == "number.accu_setpoint"
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+KLOPT = dict(tou="Enabled", tijden=["00:00:00", "04:00:00", "08:00:00", "12:00:00", "16:00:00", "20:00:00"])
+
+
+async def test_zelfverbruik_met_laden_uit_de_zon_wordt_nooit_grid(hass, hub):
+    # Het vorige kwartier laadde van het net; nu zegt het plan zelfverbruik met -1500 W (eigen zon).
+    zet_deye(hass, laden="Grid", soc=80, stroom=98, **KLOPT)
+    d = diensten(hass)
+    hub._verwerk(protocol.huis_topic(ADRES, "hub/plan"), plan("zelfverbruik", -1500, 60))
+    await hub.ems.tik(-1500, -1500, 47)
+    await hass.async_block_till_done()
+
+    assert {c.data["option"] for c in d["select"]} == {"Disabled"} and len(d["select"]) == 6
+    assert {c.data["value"] for c in d["number"] if c.data["entity_id"] in SOC} == {20}
+    assert not [c for c in d["number"] if c.data["entity_id"] == "number.deye_battery_grid_charging_current"]
+    staat = next(s for s in hass.states.async_all("sensor") if s.attributes.get("zonneburen") == "energieplan")
+    assert staat.attributes["toegepaste_stand"] == "zelfverbruik"
+
+
+async def test_zelfverbruik_dat_rond_nul_schommelt_schrijft_niets(hass, hub):
+    zet_deye(hass, laden="Disabled", soc=20, **KLOPT)
+    d = diensten(hass)
+    for bat_w in (-250, 250, -250, 250):
+        hub._verwerk(protocol.huis_topic(ADRES, "hub/plan"), plan("zelfverbruik", bat_w, 50))
+        hub.ems.deye._volgende = 0      # geen wachttijd: elke ronde mag schrijven, als er iets te schrijven is
+        await hub.ems.tik(bat_w, bat_w, 47)
+    await hass.async_block_till_done()
+    assert not d["select"] and not d["number"] and not d["time"]
+
