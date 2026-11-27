@@ -169,6 +169,9 @@ class ZonneburenHub:
         self._bijgewerkt()
 
     async def async_stop(self) -> None:
+        from homeassistant.core import CoreState
+
+        await self.ems.async_stop(afsluiten=self.hass.state in (CoreState.stopping, CoreState.final_write, CoreState.stopped))
         await self._async_bewaar()
         await self.verbinding.async_stop()
 

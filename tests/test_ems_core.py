@@ -209,7 +209,7 @@ def test_deye_vasthouden_op_de_lading_van_nu():
 def test_deye_zelfverbruik_en_ontladen_gaan_naar_de_ondergrens():
     assert (_deye(_eigen_plan([ems_core.ZELFVERBRUIK]), T0 + 60, 60).soc, _deye(_eigen_plan([ems_core.ZELFVERBRUIK]), T0 + 60, 60).laden) == (20, False)
     ontladen = _deye(_eigen_plan([ems_core.NETONTLADEN], bat_w=[3000]), T0 + 60, 60)
-    assert not ontladen.laden and ontladen.soc == 20 and ontladen.beperking == "geen_vast_ontladen"
+    assert not ontladen.laden and ontladen.soc == 20 and ontladen.beperking == "teruglevering_uit" and ontladen.werkmodus == ems_core.CT
 
 
 def test_deye_uit_bij_noodstop_pauze_en_zonder_plan():
@@ -242,10 +242,44 @@ def test_deye_zelfverbruik_dat_rond_nul_schommelt_blijft_dezelfde_opdracht():
 def test_deye_alleen_zon_met_veel_laden_houdt_de_lading_vast():
     # Laden met eigen zon in de stand alleen zon: niet ontladen tot de ondergrens.
     wens = _deye(_eigen_plan([ems_core.ALLEENZON], bat_w=[-1500]), T0 + 60, 55)
-    assert not wens.laden and wens.soc == 55 and wens.stand == ems_core.VASTHOUDEN
+    assert not wens.laden and wens.soc == 55 and wens.stand == ems_core.ALLEENZON and not wens.netladen_aan
 
 
 def test_deye_netladen_met_weinig_vermogen_laadt_toch_van_het_net():
     wens = _deye(_eigen_plan([ems_core.NETLADEN], bat_w=[-100], soc=[70]), T0 + 60, 47)
     assert wens.laden and wens.soc == 70 and wens.stroom_a == 10
+
+
+def test_deye_laden_zet_ook_het_vermogen_per_programma():
+    wens = _deye(_eigen_plan([ems_core.NETLADEN]), T0 + 60, 47)
+    assert wens.vermogen_w == 5000 and wens.werkmodus == ems_core.CT and wens.netladen_aan
+
+
+def test_deye_zelfverbruik_laat_de_omvormer_zelf_regelen_tot_de_grenzen():
+    wens = _deye(_eigen_plan([ems_core.ZELFVERBRUIK], bat_w=[1800]), T0 + 60, 60)
+    assert wens.vermogen_w == 10000 and wens.max_ontlaad_a == 196      # 10.000 W / 51 V
+    assert wens.max_laad_a is None and wens.export_w is None           # eigen waarden blijven staan
+
+
+def test_deye_terugleveren_alleen_als_het_mag():
+    plan = _eigen_plan([ems_core.NETONTLADEN], bat_w=[3000], soc=[35])
+    zonder = _deye(plan, T0 + 60, 60)
+    assert zonder.werkmodus == ems_core.CT and zonder.export_w is None and zonder.vermogen_w == 3000
+    met = _deye(plan, T0 + 60, 60, terugleveren=True)
+    assert met.werkmodus == ems_core.EXPORT and met.export_w == 3000 and met.max_ontlaad_a == 59 and met.soc == 35
+
+
+def test_deye_standby_zet_laden_en_ontladen_op_nul():
+    wens = _deye(_eigen_plan([ems_core.STANDBY]), T0 + 60, 47)
+    assert (wens.max_laad_a, wens.max_ontlaad_a, wens.vermogen_w, wens.soc) == (0, 0, 0, 47)
+
+
+def test_deye_uit_betekent_de_eigen_instellingen_terug():
+    wens = ems_core.deye_wens(_eigen_plan([ems_core.NETLADEN]), None, T0 + 60, 47, 51, ems_core.Grenzen(noodstop=True))
+    assert wens.herstel and wens.beperking == "noodstop"
+
+
+def test_deye_stroom_met_onzinnige_spanning_rekent_met_52_volt():
+    assert ems_core.deye_stroom(5200, None) == 100 and ems_core.deye_stroom(5200, 12) == 100
+    assert ems_core.deye_stroom(50000, 51) == 350
 

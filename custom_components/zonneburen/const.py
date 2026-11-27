@@ -1,7 +1,7 @@
 """Vaste waarden van de Zonneburen-integratie."""
 
 DOMAIN = "zonneburen"
-VERSIE = "0.8.2"
+VERSIE = "0.9.0"
 
 # De webapp herkent hieraan een software-hub: geen firmware, bijwerken gaat via de Marketplace.
 FIRMWARE = f"ha-{VERSIE}"
@@ -62,11 +62,24 @@ CONF_TOU_SPANNING = "ems_tou_spanning"  # sensor: accuspanning (V)
 CONF_TOU_MIN_SOC = "ems_tou_min_soc"    # number: de ondergrens van de omvormer (battery_low_soc), optioneel
 CONF_TOU_MAX_PCT = "ems_tou_max_pct"    # hoe vol netladen hooguit mag (standaard 90 %)
 CONF_TOU_MIN_PCT = "ems_tou_min_pct"    # de ondergrens als de omvormer er geen meldt (standaard 20 %)
+CONF_TOU_WERKMODUS = "ems_tou_werkmodus"        # select: work_mode (Zero Export To CT / Export First)
+CONF_TOU_PATROON = "ems_tou_patroon"            # select: energy_pattern (Battery First)
+CONF_TOU_VERMOGEN = "ems_tou_vermogen"          # 6 numbers: program_N_power (W)
+CONF_TOU_MAX_LAAD_A = "ems_tou_max_laad_a"      # number: battery_max_charging_current (A)
+CONF_TOU_MAX_ONTLAAD_A = "ems_tou_max_ontlaad_a"  # number: battery_max_discharging_current (A)
+CONF_TOU_NETLADEN = "ems_tou_netladen"          # switch: battery_grid_charging
+CONF_TOU_MAX_EXPORT = "ems_tou_max_export"      # number: grid_max_export_power (W)
+CONF_TOU_FASEN = "ems_tou_fasen"                # sensors: stroom per fase (A), voor de hoofdzekering (optioneel)
+CONF_TOU_TERUGLEVEREN = "ems_tou_terugleveren"  # mag de batterij naar het net ontladen (Export First)? standaard nee
+CONF_TOU_MAX_LAAD_W = "ems_tou_max_laad_w"      # standaard 10000
+CONF_TOU_MAX_ONTLAAD_W = "ems_tou_max_ontlaad_w"  # standaard 10000
 EMS_OPTIES = (CONF_EMS_AAN, CONF_EMS_VERMOGEN, CONF_EMS_NETDOEL, CONF_EMS_LADEN_POSITIEF, CONF_EMS_MODUS, CONF_EMS_MODUS_STUREN,
               CONF_EMS_MODUS_TERUG, CONF_EMS_MAX_LAAD_W, CONF_EMS_MAX_ONTLAAD_W, CONF_EMS_ZEKERING_A, CONF_EMS_ONTLAAD,
               CONF_EMS_RICHTING, CONF_EMS_RICHTING_LADEN, CONF_EMS_RICHTING_ONTLADEN, CONF_EMS_RICHTING_STOP,
               CONF_EMS_PROFIEL, CONF_TOU, CONF_TOU_LADEN, CONF_TOU_SOC, CONF_TOU_TIJD, CONF_TOU_STROOM, CONF_TOU_SPANNING,
-              CONF_TOU_MIN_SOC, CONF_TOU_MAX_PCT, CONF_TOU_MIN_PCT)
+              CONF_TOU_MIN_SOC, CONF_TOU_MAX_PCT, CONF_TOU_MIN_PCT, CONF_TOU_WERKMODUS, CONF_TOU_PATROON, CONF_TOU_VERMOGEN,
+              CONF_TOU_MAX_LAAD_A, CONF_TOU_MAX_ONTLAAD_A, CONF_TOU_NETLADEN, CONF_TOU_MAX_EXPORT, CONF_TOU_FASEN,
+              CONF_TOU_TERUGLEVEREN, CONF_TOU_MAX_LAAD_W, CONF_TOU_MAX_ONTLAAD_W)
 
 # Slimme meters met afname en teruglevering in twee sensoren (DSMR, P1 Monitor): het net is het verschil.
 CONF_NET_TERUG = "net_terug"

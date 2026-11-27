@@ -27,6 +27,8 @@ from .const import (
     CONF_VERBRUIK, CONF_WIJK_AUTOMATISCH, CONF_ZON, DOMAIN, SENSOREN, STANDAARD_SERVER,
     CONF_EMS_PROFIEL, CONF_TOU, CONF_TOU_LADEN, CONF_TOU_MAX_PCT, CONF_TOU_MIN_PCT, CONF_TOU_MIN_SOC, CONF_TOU_SOC,
     CONF_TOU_SPANNING, CONF_TOU_STROOM, CONF_TOU_TIJD, PROFIEL_DEYE, PROFIEL_VERMOGEN,
+    CONF_TOU_FASEN, CONF_TOU_MAX_EXPORT, CONF_TOU_MAX_LAAD_A, CONF_TOU_MAX_LAAD_W, CONF_TOU_MAX_ONTLAAD_A,
+    CONF_TOU_MAX_ONTLAAD_W, CONF_TOU_NETLADEN, CONF_TOU_PATROON, CONF_TOU_TERUGLEVEREN, CONF_TOU_VERMOGEN, CONF_TOU_WERKMODUS,
 )
 from .koppelen import KoppelFout, koppel
 
@@ -123,10 +125,20 @@ def _sensoren_schema(standaard: dict) -> vol.Schema:
     })
 
 
+def deye_opties(deye: herkennen.DeyeTou) -> dict:
+    """De gevonden entiteiten van een Deye als opties van het profiel."""
+    return {CONF_TOU: deye.tou, CONF_TOU_LADEN: deye.laden, CONF_TOU_SOC: deye.soc, CONF_TOU_TIJD: deye.tijd,
+            CONF_TOU_STROOM: deye.stroom, CONF_TOU_SPANNING: deye.spanning, CONF_TOU_MIN_SOC: deye.min_soc,
+            CONF_TOU_WERKMODUS: deye.werkmodus, CONF_TOU_PATROON: deye.patroon, CONF_TOU_VERMOGEN: deye.vermogen,
+            CONF_TOU_MAX_LAAD_A: deye.max_laad_a, CONF_TOU_MAX_ONTLAAD_A: deye.max_ontlaad_a, CONF_TOU_NETLADEN: deye.netladen,
+            CONF_TOU_MAX_EXPORT: deye.max_export}
+
+
 def _deye_schema(standaard: dict) -> vol.Schema:
     meer = lambda domein: selector.EntitySelector(selector.EntitySelectorConfig(domain=domein, multiple=True))
     een = lambda domein: selector.EntitySelector(selector.EntitySelectorConfig(domain=domein))
     procent = lambda lo, hi: selector.NumberSelector(selector.NumberSelectorConfig(min=lo, max=hi, step=1, unit_of_measurement="%", mode="box"))
+    watt = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=50000, step=100, unit_of_measurement="W", mode="box"))
     return vol.Schema({
         vol.Optional(CONF_TOU, description=_voorstel(standaard.get(CONF_TOU))): een("select"),
         vol.Optional(CONF_TOU_LADEN, description=_voorstel(standaard.get(CONF_TOU_LADEN))): meer("select"),
@@ -135,8 +147,19 @@ def _deye_schema(standaard: dict) -> vol.Schema:
         vol.Optional(CONF_TOU_STROOM, description=_voorstel(standaard.get(CONF_TOU_STROOM))): een("number"),
         vol.Optional(CONF_TOU_SPANNING, description=_voorstel(standaard.get(CONF_TOU_SPANNING))): een("sensor"),
         vol.Optional(CONF_TOU_MIN_SOC, description=_voorstel(standaard.get(CONF_TOU_MIN_SOC))): een("number"),
+        vol.Optional(CONF_TOU_WERKMODUS, description=_voorstel(standaard.get(CONF_TOU_WERKMODUS))): een("select"),
+        vol.Optional(CONF_TOU_PATROON, description=_voorstel(standaard.get(CONF_TOU_PATROON))): een("select"),
+        vol.Optional(CONF_TOU_VERMOGEN, description=_voorstel(standaard.get(CONF_TOU_VERMOGEN))): meer("number"),
+        vol.Optional(CONF_TOU_MAX_LAAD_A, description=_voorstel(standaard.get(CONF_TOU_MAX_LAAD_A))): een("number"),
+        vol.Optional(CONF_TOU_MAX_ONTLAAD_A, description=_voorstel(standaard.get(CONF_TOU_MAX_ONTLAAD_A))): een("number"),
+        vol.Optional(CONF_TOU_NETLADEN, description=_voorstel(standaard.get(CONF_TOU_NETLADEN))): een("switch"),
+        vol.Optional(CONF_TOU_MAX_EXPORT, description=_voorstel(standaard.get(CONF_TOU_MAX_EXPORT))): een("number"),
         vol.Optional(CONF_TOU_MAX_PCT, default=standaard.get(CONF_TOU_MAX_PCT) or 90): procent(30, 100),
         vol.Optional(CONF_TOU_MIN_PCT, default=standaard.get(CONF_TOU_MIN_PCT) or 20): procent(5, 80),
+        vol.Optional(CONF_TOU_MAX_LAAD_W, default=standaard.get(CONF_TOU_MAX_LAAD_W) or 10000): watt,
+        vol.Optional(CONF_TOU_MAX_ONTLAAD_W, default=standaard.get(CONF_TOU_MAX_ONTLAAD_W) or 10000): watt,
+        vol.Optional(CONF_TOU_TERUGLEVEREN, default=bool(standaard.get(CONF_TOU_TERUGLEVEREN))): bool,
+        vol.Optional(CONF_TOU_FASEN, description=_voorstel(standaard.get(CONF_TOU_FASEN))): meer("sensor"),
         vol.Optional(CONF_EMS_ZEKERING_A, description=_voorstel(standaard.get(CONF_EMS_ZEKERING_A))):
             selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=80, step=1, unit_of_measurement="A", mode="box")),
     })
@@ -360,15 +383,16 @@ class _Stappen:
         await self._herken()
         if user_input is not None:
             for sleutel in (CONF_TOU, CONF_TOU_LADEN, CONF_TOU_SOC, CONF_TOU_TIJD, CONF_TOU_STROOM, CONF_TOU_SPANNING, CONF_TOU_MIN_SOC,
-                            CONF_TOU_MAX_PCT, CONF_TOU_MIN_PCT, CONF_EMS_ZEKERING_A):
+                            CONF_TOU_MAX_PCT, CONF_TOU_MIN_PCT, CONF_EMS_ZEKERING_A, CONF_TOU_WERKMODUS, CONF_TOU_PATROON,
+                            CONF_TOU_VERMOGEN, CONF_TOU_MAX_LAAD_A, CONF_TOU_MAX_ONTLAAD_A, CONF_TOU_NETLADEN, CONF_TOU_MAX_EXPORT,
+                            CONF_TOU_MAX_LAAD_W, CONF_TOU_MAX_ONTLAAD_W, CONF_TOU_TERUGLEVEREN, CONF_TOU_FASEN):
                 self._opties[sleutel] = user_input.get(sleutel)
             if self._opties.get(CONF_EMS_AAN) and not (user_input.get(CONF_TOU_LADEN) and user_input.get(CONF_TOU_SOC)):
                 return self._toon_deye(self._opties, {"base": "geen_programmas"})
             return await self._volgende("batterij")
         standaard = dict(self._opties)
         if not standaard.get(CONF_TOU_LADEN) and (deye := herkennen.zoek_deye(self._entiteiten or [])):
-            standaard.update({CONF_TOU: deye.tou, CONF_TOU_LADEN: deye.laden, CONF_TOU_SOC: deye.soc, CONF_TOU_TIJD: deye.tijd,
-                              CONF_TOU_STROOM: deye.stroom, CONF_TOU_SPANNING: deye.spanning, CONF_TOU_MIN_SOC: deye.min_soc})
+            standaard.update(deye_opties(deye))
         return self._toon_deye(standaard)
 
     def _toon_deye(self, standaard: dict, fouten: dict | None = None) -> ConfigFlowResult:
@@ -419,7 +443,7 @@ class _Stappen:
 class ZonneburenConfigFlow(_Stappen, ConfigFlow, domain=DOMAIN):
     VERSION = 1
     # 1.2: het sturingsprofiel (vermogen of Deye-tijdprogramma's); zie async_migrate_entry.
-    MINOR_VERSION = 2
+    MINOR_VERSION = 3
 
     def __init__(self) -> None:
         self._gekoppeld: dict = {}

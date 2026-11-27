@@ -346,41 +346,59 @@ def apparaat_blokken(plan: Plan | None, nu: float, namen: dict[int, str] | None 
 # ------------------------------------------------------------------ Deye / Sunsynk: tijdprogramma's
 
 # De stand van het kwartier is leidend, niet het teken van het vermogen: een negatief vermogen bij
-# zelfverbruik is laden met eigen zon en mag nooit netladen worden. Het vermogen telt alleen voor de laadstroom.
+# zelfverbruik is laden met eigen zon en mag nooit netladen worden. Het vermogen telt alleen voor de grootte.
 DEYE_MIN_STROOM_A = 10
+DEYE_MAX_STROOM_A = 350
+DEYE_SPANNING_MIN = 40
+DEYE_SPANNING_STANDAARD = 52
+CT, EXPORT = "ct", "export"     # work_mode: Zero Export To CT (zelfverbruik op de meter) of Export First
 
 
 @dataclass
 class DeyeWens:
-    """Wat de tijdprogramma's van een Deye moeten doen. De Deye kent geen vermogen in W: hij laadt van het net
-    (Grid) tot een lading, of hij houdt een ondergrens aan en doet verder zijn eigen zelfverbruik."""
-    laden: bool
-    soc: float
-    stroom_a: float | None
-    stand: str                 # wat we toepassen: netladen, vasthouden of zelfverbruik
+    """Wat de Deye moet doen. herstel = de eigen instellingen van de bewoner terug (sturing uit, pauze, noodstop,
+    geen plan). Bij een getal None blijft de opgeslagen waarde van de bewoner staan."""
+    laden: bool                      # programma's op Grid
+    soc: float                       # lading van de programma's: doel bij laden, ondergrens anders
+    stroom_a: float | None           # laadstroom van het net (alleen bij laden)
+    stand: str                       # wat er werkelijk gebeurt
     bron: str = PLAN
-    beperking: str = ""        # zekering, max_netladen, min_soc, pauze, noodstop, geen_plan, geen_vast_ontladen
+    beperking: str = ""
     gevraagd_w: float = 0
     slot: int = -1
+    herstel: bool = False
+    werkmodus: str = CT
+    vermogen_w: float | None = None  # program_N_power
+    max_laad_a: float | None = None
+    max_ontlaad_a: float | None = None
+    export_w: float | None = None
+    netladen_aan: bool = True
+
+
+def deye_stroom(watt: float, spanning: float | None) -> float:
+    """Van vermogen naar accustroom: A = W / V, binnen 0-350 A. Een onzinnige spanning: 52 V."""
+    v = spanning if spanning and spanning >= DEYE_SPANNING_MIN else DEYE_SPANNING_STANDAARD
+    return float(min(DEYE_MAX_STROOM_A, max(0, round(abs(watt) / v))))
 
 
 def deye_wens(plan: Plan | None, vorig: Plan | None, nu: float, soc_nu: float | None, spanning: float | None, g: Grenzen,
               max_pct: float = 90, min_pct: float = 20, max_stroom_a: float | None = None,
-              max_fase_a: float | None = None) -> DeyeWens:
-    """Van het kwartier van nu naar de tijdprogramma's.
+              max_fase_a: float | None = None, max_laad_w: float = 10000, max_ontlaad_w: float = 10000,
+              terugleveren: bool = False) -> DeyeWens:
+    """Van het kwartier van nu naar de instellingen van de omvormer.
 
-    Alleen de stand bepaalt wat er gebeurt: netladen laadt van het net, vasthouden, standby en alleen zon
-    houden de lading vast (zon laadt gewoon door), zelfverbruik en ontladen gaan tot de ondergrens. Het
-    geplande vermogen bepaalt alleen hoe hard er van het net geladen wordt."""
-    uit = lambda beperking, bron: DeyeWens(False, min_pct, None, ZELFVERBRUIK, bron, beperking)
+    Alleen de stand bepaalt wat er gebeurt; het geplande vermogen alleen hoe hard. Alle zes de programma's krijgen
+    dezelfde waarden, zodat de omvormer de hele dag doet wat het kwartier van nu vraagt."""
+    herstel = lambda beperking, bron: DeyeWens(False, min_pct, None, "eigen stand", bron, beperking, herstel=True)
     if g.noodstop:
-        return uit("noodstop", NOODSTOP)
+        return herstel("noodstop", NOODSTOP)
     if g.gepauzeerd:
-        return uit("pauze", GEBRUIKER)
+        return herstel("pauze", GEBRUIKER)
     gekozen, slot = plan_voor(plan, vorig, nu)
     if gekozen is None:
-        return uit("geen_plan", TERUGVAL)
+        return herstel("geen_plan", TERUGVAL)
     k = gekozen.kwartieren[slot]
+    vasthouden = round(min(max(soc_nu if soc_nu is not None else min_pct, min_pct), 100))
 
     if k.stand == NETLADEN:
         beperking = ""
@@ -389,26 +407,42 @@ def deye_wens(plan: Plan | None, vorig: Plan | None, nu: float, soc_nu: float | 
         if doel > max_pct:
             doel, beperking = max_pct, "max_netladen"
         watt = max(-k.bat_w, 0)
-        for grens in (g.max_laad_w, gekozen.max_laad_w):
+        for grens in (g.max_laad_w, gekozen.max_laad_w, max_laad_w):
             if grens > 0:
                 watt = min(watt, grens)
-        stroom = None
-        if spanning and spanning > 20:
-            stroom = max(DEYE_MIN_STROOM_A, round(watt / spanning))
-            if max_stroom_a:
-                stroom = min(stroom, max_stroom_a)
-            # De hoofdzekering: zo veel minder laden dat de zwaarste fase onder 90 % blijft (3 fasen).
-            if g.zekering_a > 0 and max_fase_a is not None and max_fase_a > 0.95 * g.zekering_a:
-                stroom = round(stroom - (max_fase_a - 0.9 * g.zekering_a) * 230 * 3 / spanning)
-                beperking = "zekering"
-                if stroom < DEYE_MIN_STROOM_A:
-                    return DeyeWens(False, max(soc_nu or min_pct, min_pct), None, VASTHOUDEN, PLAN, "zekering", k.bat_w, slot)
-        return DeyeWens(True, round(doel), stroom, NETLADEN, PLAN, beperking, k.bat_w, slot)
+        stroom = max(DEYE_MIN_STROOM_A, deye_stroom(watt, spanning))
+        if max_stroom_a:
+            stroom = min(stroom, max_stroom_a)
+        # De hoofdzekering: zo veel minder laden dat de zwaarste fase onder 90 % blijft (3 fasen).
+        if g.zekering_a > 0 and max_fase_a is not None and max_fase_a > 0.95 * g.zekering_a:
+            v = spanning if spanning and spanning >= DEYE_SPANNING_MIN else DEYE_SPANNING_STANDAARD
+            stroom = round(stroom - (max_fase_a - 0.9 * g.zekering_a) * 230 * 3 / v)
+            beperking = "zekering"
+            if stroom < DEYE_MIN_STROOM_A:
+                return DeyeWens(False, vasthouden, None, VASTHOUDEN, PLAN, "zekering", k.bat_w, slot, vermogen_w=max_ontlaad_w)
+        return DeyeWens(True, round(doel), stroom, NETLADEN, PLAN, beperking, k.bat_w, slot,
+                        vermogen_w=watt if watt > 0 else stroom * (spanning or DEYE_SPANNING_STANDAARD))
 
-    if k.stand in (VASTHOUDEN, STANDBY, ALLEENZON):
-        # Niet ontladen: de ondergrens op de lading van nu. Zon laadt gewoon door.
-        doel = max(soc_nu if soc_nu is not None else min_pct, min_pct)
-        return DeyeWens(False, round(min(doel, 100)), None, VASTHOUDEN, PLAN, "", k.bat_w, slot)
+    if k.stand in (VASTHOUDEN, ALLEENZON):
+        # Niet ontladen: de ondergrens op de lading van nu. Zon laadt gewoon door; bij alleen zon niet van het net.
+        return DeyeWens(False, vasthouden, None, k.stand, PLAN, "", k.bat_w, slot, vermogen_w=max_ontlaad_w,
+                        netladen_aan=k.stand != ALLEENZON)
 
-    # Zelfverbruik, en terugleveren uit de batterij (kan een Deye zo niet): zijn eigen zelfverbruik.
-    return DeyeWens(False, min_pct, None, ZELFVERBRUIK, PLAN, "geen_vast_ontladen" if k.stand == NETONTLADEN else "", k.bat_w, slot)
+    if k.stand == STANDBY:
+        # Helemaal stil: niet laden en niet ontladen.
+        return DeyeWens(False, vasthouden, None, STANDBY, PLAN, "", k.bat_w, slot, vermogen_w=0, max_laad_a=0, max_ontlaad_a=0)
+
+    if k.stand == NETONTLADEN:
+        watt = min(max(k.bat_w, 0), max_ontlaad_w)
+        if terugleveren:
+            doel = max(min_pct, k.soc_eind)
+            return DeyeWens(False, round(doel), None, NETONTLADEN, PLAN, "", k.bat_w, slot, werkmodus=EXPORT,
+                            vermogen_w=watt, max_ontlaad_a=deye_stroom(watt, spanning), export_w=watt)
+        # Terugleveren staat uit: ontladen voor het eigen huis, met het geplande vermogen als grens.
+        return DeyeWens(False, min_pct, None, ZELFVERBRUIK, PLAN, "teruglevering_uit", k.bat_w, slot,
+                        vermogen_w=watt, max_ontlaad_a=deye_stroom(watt, spanning))
+
+    # Zelfverbruik: de omvormer regelt zelf op de CT-meter, tot de ondergrens. Het vermogen van het plan schommelt
+    # met zon en verbruik; daar schrijven we niets voor.
+    return DeyeWens(False, min_pct, None, ZELFVERBRUIK, PLAN, "", k.bat_w, slot,
+                    vermogen_w=max_ontlaad_w, max_ontlaad_a=deye_stroom(max_ontlaad_w, spanning))

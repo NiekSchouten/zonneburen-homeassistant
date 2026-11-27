@@ -102,7 +102,7 @@
       },
       "deye": {
         "title": "Deye / Sunsynk: time-of-use programs",
-        "description": "Zonneburen sets the six time-of-use programs of your inverter to 00:00, 04:00, 08:00, 12:00, 16:00 and 20:00 and gives them all the same instruction every quarter: **charge from the grid** up to a state of charge, **hold the charge**, or **self-consumption** down to the minimum. A Deye cannot discharge at a fixed power this way, so the web app will not plan that.\n\nFound:\n{gevonden}",
+        "description": "Zonneburen sets the six time-of-use programs of your inverter to 00:00, 04:00, 08:00, 12:00, 16:00 and 20:00 and gives them all the same instruction every quarter: **charge from the grid**, **hold the charge**, **self-consumption** down to the minimum, or (if you allow it) **export from the battery**. Your own settings are saved first and put back when control stops.\n\nFound:\n{gevonden}",
         "data": {
           "ems_tou": "Time of use (on/off)",
           "ems_tou_laden": "Charging per program (Grid / Disabled)",
@@ -113,7 +113,18 @@
           "ems_tou_min_soc": "Minimum of the inverter (optional)",
           "ems_tou_max_pct": "Grid charging at most up to",
           "ems_tou_min_pct": "Minimum if the inverter reports none",
-          "ems_zekering_a": "Main fuse (optional)"
+          "ems_zekering_a": "Main fuse (optional)",
+          "ems_tou_werkmodus": "Work mode",
+          "ems_tou_patroon": "Energy pattern",
+          "ems_tou_vermogen": "Power per program (W)",
+          "ems_tou_max_laad_a": "Max charging current (A)",
+          "ems_tou_max_ontlaad_a": "Max discharging current (A)",
+          "ems_tou_netladen": "Grid charging allowed (switch)",
+          "ems_tou_max_export": "Max export power (W)",
+          "ems_tou_max_laad_w": "Charge at most",
+          "ems_tou_max_ontlaad_w": "Discharge at most",
+          "ems_tou_terugleveren": "Allow battery export",
+          "ems_tou_fasen": "Current per phase (optional)"
         },
         "data_description": {
           "ems_tou_laden": "The six Program 1-6 Charging selects. When charging Zonneburen sets them to Grid, otherwise to Disabled.",
@@ -121,7 +132,18 @@
           "ems_tou_stroom": "Zonneburen derives the charging current from the planned power and the battery voltage.",
           "ems_tou_max_pct": "How full the battery may be charged from the grid. Default 90 %.",
           "ems_tou_min_pct": "Used when no minimum of the inverter is chosen. Default 20 %.",
-          "ems_zekering_a": "When a phase gets close to the fuse, the battery charges more slowly."
+          "ems_zekering_a": "When a phase gets close to the fuse, the battery charges more slowly.",
+          "ems_tou_werkmodus": "Zonneburen sets it to Zero Export To CT (self-consumption on the meter), and only to Export First when exporting.",
+          "ems_tou_patroon": "Set to Battery First.",
+          "ems_tou_vermogen": "The six Program 1-6 Power numbers.",
+          "ems_tou_max_laad_a": "Only set to 0 in standby; otherwise your own value stays.",
+          "ems_tou_max_ontlaad_a": "Follows the planned discharge power.",
+          "ems_tou_netladen": "Off in solar-only, otherwise on.",
+          "ems_tou_max_export": "Only used when battery export is allowed.",
+          "ems_tou_max_laad_w": "Default 10,000 W.",
+          "ems_tou_max_ontlaad_w": "Default 10,000 W.",
+          "ems_tou_terugleveren": "Off by default. On: at high prices the battery may export (Export First).",
+          "ems_tou_fasen": "For the main fuse: within 2 A of the fuse the battery charges 10 A less."
         }
       }
     },
@@ -238,7 +260,7 @@
       },
       "deye": {
         "title": "Deye / Sunsynk: time-of-use programs",
-        "description": "Zonneburen sets the six time-of-use programs of your inverter to 00:00, 04:00, 08:00, 12:00, 16:00 and 20:00 and gives them all the same instruction every quarter: **charge from the grid** up to a state of charge, **hold the charge**, or **self-consumption** down to the minimum. A Deye cannot discharge at a fixed power this way, so the web app will not plan that.\n\nFound:\n{gevonden}",
+        "description": "Zonneburen sets the six time-of-use programs of your inverter to 00:00, 04:00, 08:00, 12:00, 16:00 and 20:00 and gives them all the same instruction every quarter: **charge from the grid**, **hold the charge**, **self-consumption** down to the minimum, or (if you allow it) **export from the battery**. Your own settings are saved first and put back when control stops.\n\nFound:\n{gevonden}",
         "data": {
           "ems_tou": "Time of use (on/off)",
           "ems_tou_laden": "Charging per program (Grid / Disabled)",
@@ -249,7 +271,18 @@
           "ems_tou_min_soc": "Minimum of the inverter (optional)",
           "ems_tou_max_pct": "Grid charging at most up to",
           "ems_tou_min_pct": "Minimum if the inverter reports none",
-          "ems_zekering_a": "Main fuse (optional)"
+          "ems_zekering_a": "Main fuse (optional)",
+          "ems_tou_werkmodus": "Work mode",
+          "ems_tou_patroon": "Energy pattern",
+          "ems_tou_vermogen": "Power per program (W)",
+          "ems_tou_max_laad_a": "Max charging current (A)",
+          "ems_tou_max_ontlaad_a": "Max discharging current (A)",
+          "ems_tou_netladen": "Grid charging allowed (switch)",
+          "ems_tou_max_export": "Max export power (W)",
+          "ems_tou_max_laad_w": "Charge at most",
+          "ems_tou_max_ontlaad_w": "Discharge at most",
+          "ems_tou_terugleveren": "Allow battery export",
+          "ems_tou_fasen": "Current per phase (optional)"
         },
         "data_description": {
           "ems_tou_laden": "The six Program 1-6 Charging selects. When charging Zonneburen sets them to Grid, otherwise to Disabled.",
@@ -257,7 +290,18 @@
           "ems_tou_stroom": "Zonneburen derives the charging current from the planned power and the battery voltage.",
           "ems_tou_max_pct": "How full the battery may be charged from the grid. Default 90 %.",
           "ems_tou_min_pct": "Used when no minimum of the inverter is chosen. Default 20 %.",
-          "ems_zekering_a": "When a phase gets close to the fuse, the battery charges more slowly."
+          "ems_zekering_a": "When a phase gets close to the fuse, the battery charges more slowly.",
+          "ems_tou_werkmodus": "Zonneburen sets it to Zero Export To CT (self-consumption on the meter), and only to Export First when exporting.",
+          "ems_tou_patroon": "Set to Battery First.",
+          "ems_tou_vermogen": "The six Program 1-6 Power numbers.",
+          "ems_tou_max_laad_a": "Only set to 0 in standby; otherwise your own value stays.",
+          "ems_tou_max_ontlaad_a": "Follows the planned discharge power.",
+          "ems_tou_netladen": "Off in solar-only, otherwise on.",
+          "ems_tou_max_export": "Only used when battery export is allowed.",
+          "ems_tou_max_laad_w": "Default 10,000 W.",
+          "ems_tou_max_ontlaad_w": "Default 10,000 W.",
+          "ems_tou_terugleveren": "Off by default. On: at high prices the battery may export (Export First).",
+          "ems_tou_fasen": "For the main fuse: within 2 A of the fuse the battery charges 10 A less."
         }
       }
     },

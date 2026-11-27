@@ -181,12 +181,20 @@ def deye_entiteiten():
         Entiteit("number.deye_battery_grid_charging_current", naam="Battery Grid Charging Current", eenheid="A", minimum=0,
                  maximum=240, **d),
         Entiteit("number.deye_battery_low_soc", naam="Battery Low SOC", eenheid="%", minimum=0, maximum=100, **d),
+        Entiteit("select.deye_work_mode", naam="Work Mode", opties=["Export First", "Zero Export To Load", "Zero Export To CT"], **d),
+        Entiteit("select.deye_energy_pattern", naam="Energy Pattern", opties=["Battery First", "Load First"], **d),
+        Entiteit("number.deye_battery_max_charging_current", naam="Battery Max Charging Current", eenheid="A", minimum=0, maximum=350, **d),
+        Entiteit("number.deye_battery_max_discharging_current", naam="Battery Max Discharging Current", eenheid="A", minimum=0,
+                 maximum=350, **d),
+        Entiteit("switch.deye_battery_grid_charging", naam="Battery Grid Charging", **d),
+        Entiteit("number.deye_grid_max_export_power", naam="Grid Max Export Power", eenheid="W", minimum=0, maximum=80000, **d),
     ]
     for n in range(1, 7):
         lijst += [
             Entiteit(f"select.deye_program_{n}_charging", naam=f"Program {n} Charging", opties=["Disabled", "Grid", "Gen", "Grid & Gen"], **d),
             Entiteit(f"number.deye_program_{n}_soc", naam=f"Program {n} SOC", eenheid="%", minimum=0, maximum=100, **d),
             Entiteit(f"time.deye_program_{n}_time", naam=f"Program {n} Time", **d),
+            Entiteit(f"number.deye_program_{n}_power", naam=f"Program {n} Power", eenheid="W", minimum=0, maximum=32000, **d),
         ]
     return lijst
 
@@ -200,12 +208,18 @@ def test_deye_wordt_herkend_aan_zijn_tijdprogrammas():
     assert deye.stroom == "number.deye_battery_grid_charging_current"
     assert deye.spanning == "sensor.deye_battery_voltage"
     assert deye.min_soc == "number.deye_battery_low_soc"
+    assert deye.vermogen == [f"number.deye_program_{n}_power" for n in range(1, 7)]
+    assert (deye.werkmodus, deye.patroon, deye.netladen) == ("select.deye_work_mode", "select.deye_energy_pattern", "switch.deye_battery_grid_charging")
+    assert (deye.max_laad_a, deye.max_ontlaad_a, deye.max_export) == (
+        "number.deye_battery_max_charging_current", "number.deye_battery_max_discharging_current", "number.deye_grid_max_export_power")
 
 
 def test_de_teruglevergrens_wordt_nooit_het_batterijvermogen():
-    entiteiten = [e for e in deye_entiteiten() if "program" not in e.entity_id]
+    entiteiten = deye_entiteiten()
     sturing = zoek_sturing(entiteiten, zoek_sensoren(entiteiten))
-    assert sturing is None or sturing.vermogen != "number.deye_zero_export_power"
+    # Ook het vermogen per programma of de max teruglevering niet: die sturen de batterij niet rechtstreeks.
+    assert sturing is None or sturing.vermogen not in (
+        "number.deye_zero_export_power", "number.deye_grid_max_export_power", *[f"number.deye_program_{n}_power" for n in range(1, 7)])
     # Ook met een verleidelijke naam maar een klein bereik: bij twijfel niets kiezen.
     los = [W("sensor.bat_power", "x", "bat", "Battery power"),
            Entiteit("number.bat_power_setpoint", platform="x", apparaat="bat", naam="Battery power setpoint", eenheid="W",
