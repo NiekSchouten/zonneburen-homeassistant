@@ -157,3 +157,39 @@ def test_alleen_gewone_apparaten_uit_home_assistant():
     assert apparaten[2]["host"] == "switch.boiler" and apparaten[2]["powerEntity"] == "sensor.boiler_vermogen"
     assert not p.mag_schakelen("alarm_control_panel.huis") and not p.mag_schakelen("script.alles_open")
     assert p.mag_schakelen("climate.woonkamer")
+
+
+def _schema(**extra):
+    return {"v": 1, "planId": "p1", "gemaakt": 1000, "geldigTot": 1000 + 2 * 900, "t0": 1000, "stap": 900, "sturen": False,
+            "kolommen": ["stand", "prijsIn", "prijsUit", "zonW", "verbruikW", "batW", "netW", "netDoelW", "socEind", "voorspeld"],
+            "s": [["netladen", 0.21, 0.08, 0, 600, -2500, 3100, 3100, 40.5, 0], ["zelfverbruik", 0.3, 0.17, 1200, 500, 0, -700, None, 40.5, 1]],
+            "lasten": [{"naam": "Boiler", "stand": "aanraden", "van": 1000, "tot": 1900, "apparaat": 0}],
+            "verwacht": {"besparingBatterij": 1.2, "besparingSturen": 0.4}, **extra}
+
+
+def test_schema_wordt_rijen_met_begintijd():
+    schema = p.lees_schema(json.dumps(_schema()).encode())
+    assert schema["sturen"] is False and schema["plan_id"] == "p1"
+    assert schema["rijen"][0] == [1000, "netladen", 0.21, 0.08, 0.0, 600.0, -2500.0, 3100.0, 3100.0, 40.5, False]
+    assert schema["rijen"][1][0] == 1900 and schema["rijen"][1][8] is None and schema["rijen"][1][10] is True
+    assert schema["lasten"] == [{"naam": "Boiler", "stand": "aanraden", "van": 1000, "tot": 1900, "i": 0}]
+    assert schema["verwacht"]["besparingBatterij"] == 1.2
+
+
+def test_schema_leeg_betekent_weg_en_kapot_wordt_genegeerd():
+    assert p.lees_schema(b"") == {}
+    assert p.lees_schema(b"geen json") is None
+    assert p.lees_schema(json.dumps(_schema(stap=600)).encode()) is None
+    assert p.lees_schema(json.dumps(_schema(s=[[42]])).encode()) is None
+
+
+def test_schema_volgt_de_namen_van_de_kolommen():
+    bericht = _schema(kolommen=["socEind", "stand"], s=[[55, "standby"]])
+    rij = p.lees_schema(json.dumps(bericht).encode())["rijen"][0]
+    assert rij[1] == "standby" and rij[9] == 55 and rij[2] is None
+
+
+def test_wijk_neemt_alleen_bekende_velden_over():
+    wijk = p.lees_wijk(json.dumps({"online": 3, "huizen": [{"adres": "A", "status": "deelt"}, "rommel"], "buurtbatterij": {"procent": 50},
+                                   "geheim": "nee"}).encode())
+    assert wijk == {"online": 3, "huizen": [{"adres": "A", "status": "deelt"}], "buurtbatterij": {"procent": 50}}

@@ -238,6 +238,9 @@
       },
       "verwachte_besparing": {
         "name": "Verwachte besparing"
+      },
+      "buurtbatterij": {
+        "name": "Buurtbatterij"
       }
     },
     "switch": {

@@ -36,12 +36,15 @@ class Verbinding:
             (protocol.huis_topic(self.adres, "hub/opdracht"), 1),
             # Het energieplan: retained, dus na elke (her)verbinding meteen het laatste plan.
             (protocol.huis_topic(self.adres, "hub/plan"), 1),
+            # Het hele schema voor de kaarten, ook als het plan alleen advies is.
+            (protocol.huis_topic(self.adres, "hub/planweergave"), 0),
             # Om een tweede hub op dit adres te zien: de wijk telt er maar één.
             (protocol.huis_topic(self.adres, "telemetrie"), 0),
             (protocol.TOPIC_SCHAKELEN, 1),
             (protocol.TOPIC_NOODSTOP, 1),
             (protocol.TOPIC_WEEKRAPPORT, 0),
             (protocol.TOPIC_WIJK_STATUS, 0),
+            (protocol.TOPIC_WIJK_ATTRIBUTEN, 0),
             (protocol.TOPIC_PRIJZEN, 0),
         ]
 

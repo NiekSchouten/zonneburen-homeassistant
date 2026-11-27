@@ -102,6 +102,8 @@ class ZonneburenHub:
         self.vraag = False
         self.prijzen: dict | None = None
         self.wijk_overschot: float | None = None
+        # De wijk zoals de server hem aan Home Assistant meldt: huizen, ranglijst, buurtbatterij.
+        self.wijk: dict = {}
         self.week: dict | None = None
         self.standen = [0] * protocol.MAX_APPARATEN
 
@@ -337,6 +339,10 @@ class ZonneburenHub:
     def _verwerk(self, topic: str, payload: bytes) -> None:
         if topic == protocol.huis_topic(self.adres, "hub/plan"):
             self.ems.ontvang(payload)
+        elif topic == protocol.huis_topic(self.adres, "hub/planweergave"):
+            if (schema := protocol.lees_schema(payload)) is not None:
+                self.ems.schema = schema or None
+                self._bijgewerkt()
         elif topic == protocol.huis_topic(self.adres, "hub/opdracht"):
             if opdracht := protocol.lees_opdracht(payload):
                 self.hass.async_create_task(self._opdracht(opdracht))
@@ -358,6 +364,10 @@ class ZonneburenHub:
             bericht = protocol.lees_json(payload) or {}
             if isinstance(bericht.get("netto_overschot_watt"), (int, float)):
                 self.wijk_overschot = bericht["netto_overschot_watt"]
+                self._bijgewerkt()
+        elif topic == protocol.TOPIC_WIJK_ATTRIBUTEN:
+            if (wijk := protocol.lees_wijk(payload)) is not None:
+                self.wijk = wijk
                 self._bijgewerkt()
         elif topic == protocol.TOPIC_PRIJZEN:
             self.prijzen = protocol.lees_json(payload)

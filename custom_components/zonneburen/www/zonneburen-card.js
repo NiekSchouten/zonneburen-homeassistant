@@ -1,6 +1,13 @@
 /*
- * ☀️ Zonneburen Card v1.5.0
- * Custom Lovelace card voor het Zonneburen Enterprise EMS.
+ * ☀️ Zonneburen Card v2.0.0
+ * De kaarten van Zonneburen voor Home Assistant. De integratie levert dit bestand zelf mee en registreert
+ * ook het paneel Energieplan in de zijbalk. Elke kaart vindt zijn sensor zelf en heeft een visuele editor:
+ *   custom:zonneburen-batterij-card       je batterij nu, met knoppen
+ *   custom:zonneburen-energieplan-card    het plan op een tijdlijn
+ *   custom:zonneburen-kwartier-card       het schema per kwartier, zoals in de webapp
+ *   custom:zonneburen-apparaten-card      wanneer het plan je apparaten laat draaien
+ *   custom:zonneburen-buurtbatterij-card  de virtuele buurtbatterij
+ *   custom:zonneburen-card                de wijk als straat met huisjes (hieronder)
  *
  * Visualiseert de hele wijk als een rij Hollandse huisjes:
  *   - amber + gloed       = huis deelt overschot met de wijk
@@ -50,7 +57,7 @@
 (function () {
   "use strict";
 
-  const VERSIE = "1.5.0";
+  const VERSIE = "2.0.0";
   // De integratie levert dit bestand zelf mee; staat het ook als resource in een dashboard, dan
   // laadt het twee keer. De eerste wint.
   if (customElements.get("zonneburen-card")) return;
@@ -107,10 +114,8 @@
       });
     }
 
+    // Zonder entity zoekt de kaart zelf de wijk-sensor (van de integratie, of via MQTT Discovery).
     setConfig(config) {
-      if (!config || !config.entity) {
-        throw new Error("Zonneburen Card: 'entity' is verplicht (bijv. sensor.zonneburen_wijk).");
-      }
       this._config = {
         titel: "Zonneburen",
         compact: false,
@@ -120,8 +125,19 @@
       this._laatsteRender = null;
     }
 
-    static getStubConfig() {
-      return { entity: "sensor.zonneburen_wijk", mijn_adres: "" };
+    static getStubConfig(hass) {
+      return { entity: zoek(hass, "wijk") || "" };
+    }
+
+    static getConfigElement() {
+      const e = document.createElement("zonneburen-kaart-editor");
+      e.schema = [
+        { name: "entity", label: "Wijk-sensor", selector: { entity: { domain: "sensor" } } },
+        { name: "titel", label: "Titel", selector: { text: {} } },
+        { name: "mijn_adres", label: "Mijn adres (leeg = vanzelf)", selector: { text: {} } },
+        { name: "compact", label: "Compact", selector: { boolean: {} } },
+      ];
+      return e;
     }
 
     getCardSize() {
@@ -130,7 +146,8 @@
 
     set hass(hass) {
       this._hass = hass;
-      const st = hass.states[this._config.entity];
+      this._id = this._config.entity || zoek(hass, "wijk");
+      const st = this._id ? hass.states[this._id] : undefined;
       // Alleen opnieuw tekenen als er echt iets veranderd is.
       const vingerafdruk = st
         ? st.last_updated + "|" + st.state + "|" + (this._geselecteerd || "")
@@ -146,7 +163,7 @@
       if (ev.target.closest("[data-actie='meer-info']")) {
         this.dispatchEvent(new CustomEvent("hass-more-info", {
           bubbles: true, composed: true,
-          detail: { entityId: this._config.entity },
+          detail: { entityId: this._id },
         }));
       }
     }
@@ -196,9 +213,9 @@
           ${this._stijlen()}
           <ha-card>
             <div class="melding">
-              <span class="melding-titel">Sensor niet gevonden</span>
-              <span>"${esc(cfg.entity)}" bestaat (nog) niet. Controleer of de wijk-server de
-              MQTT Discovery-berichten heeft gepubliceerd, en of de MQTT-integratie draait.</span>
+              <span class="melding-titel">Nog geen wijkgegevens</span>
+              <span>${cfg.entity ? `"${esc(cfg.entity)}" bestaat (nog) niet.` : "Er is nog geen wijk-sensor."} Met de Zonneburen-integratie
+              verschijnt de sensor Overschot in de wijk vanzelf zodra Home Assistant verbonden is.</span>
             </div>
           </ha-card>`;
         return;
@@ -231,7 +248,9 @@
       const zonGloeiIntensiteit = !isNaN(netto) && netto > 0 ? Math.max(0.25, Math.min(1, netto / 3000)) : 0.25;
 
       /* ---------- Persoonlijke teller: jouw eigen huis van vandaag ---------- */
-      const mijnHuis = cfg.mijn_adres ? huizen.find((h) => h && h.adres === cfg.mijn_adres) : null;
+      // Je eigen huis: uit de kaart, of zoals de integratie het meldt.
+      const mijnAdres = cfg.mijn_adres || attrs.mijn_adres || null;
+      const mijnHuis = mijnAdres ? huizen.find((h) => h && h.adres === mijnAdres) : null;
       const mijnTeller = !cfg.compact && mijnHuis && mijnHuis.vandaag_gedeeld_kwh !== undefined ? `
         <div class="mijn-teller">
           Vandaag <b>${fmtKwh(mijnHuis.vandaag_gedeeld_kwh)}</b> gedeeld
@@ -243,7 +262,7 @@
       const straat = huizen.length
         ? huizen.map((h) => {
             const status = STATUS[h.status] ? h.status : "neutraal";
-            const isMij = cfg.mijn_adres && h.adres === cfg.mijn_adres;
+            const isMij = mijnAdres && h.adres === mijnAdres;
             const actief = this._geselecteerd === h.adres;
             return `
               <div class="huis ${status} ${actief ? "actief" : ""}" tabindex="0" role="button"
@@ -619,239 +638,783 @@
 
   customElements.define("zonneburen-card", ZonneburenCard);
 
-  // ------------------------------------------------------------------ Energieplan
+  // ------------------------------------------------------------------ Gedeeld voor de kaarten van de integratie
 
   const PLAN_ZIN = {
     zelfverbruik: "Eigen stroom gebruiken", netladen: "Goedkoop bijladen van het net",
-    netontladen: "Terugleveren uit de batterij", vasthouden: "Lading bewaren voor later",
+    netontladen: "Stroom uit de batterij terugleveren", vasthouden: "Lading bewaren voor later",
     alleenzon: "Alleen zon opslaan", standby: "Batterij rust",
   };
+  // Dezelfde kleuren als de webapp: blauw bijladen, groen batterij, oranje zon, paars vasthouden.
+  const KLEUR = { zon: "#f59e0b", groen: "#059669", lucht: "#0284c7", violet: "#7c3aed", rood: "#dc2626", grijs: "#94a3b8" };
   const PLAN_KLEUR = {
-    netladen: "var(--info-color, #0284c7)", netontladen: "var(--success-color, #059669)",
-    zelfverbruik: "var(--success-color, #059669)", vasthouden: "var(--disabled-text-color, #9aa1ad)",
-    alleenzon: "var(--warning-color, #f59e0b)", standby: "var(--disabled-text-color, #9aa1ad)",
+    netladen: KLEUR.lucht, netontladen: KLEUR.groen, zelfverbruik: KLEUR.grijs,
+    vasthouden: KLEUR.violet, alleenzon: KLEUR.zon, standby: KLEUR.grijs,
   };
+  const PLAN_ICOON = {
+    netladen: "mdi:transmission-tower-import", netontladen: "mdi:transmission-tower-export", zelfverbruik: "mdi:home-lightning-bolt",
+    vasthouden: "mdi:battery-lock", alleenzon: "mdi:solar-power-variant", standby: "mdi:battery-outline",
+  };
+  const KWARTIER = 900;
+
   const tijd = (unix) => new Date(unix * 1000).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
   const euro = (v) => "€ " + Number(v).toFixed(2).replace(".", ",");
+  const euro3 = (v) => (typeof v === "number" ? "€ " + v.toFixed(3).replace(".", ",") : "–");
+  const kwh = (v) => Number(v).toFixed(Math.abs(v) < 10 ? 1 : 0).replace(".", ",") + " kWh";
+  const procent = (v) => Math.round(v) + "%";
+  const dagNummer = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dagenVanaf = (unix) => Math.round((dagNummer(new Date(unix * 1000)) - dagNummer(new Date())) / 864e5);
   // "02:15", of "morgen 02:15" als het niet meer vandaag is.
   const dagTijd = (unix) => {
-    const d = new Date(unix * 1000), vandaag = new Date();
-    const dagen = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(vandaag.getFullYear(), vandaag.getMonth(), vandaag.getDate())) / 864e5);
+    const dagen = dagenVanaf(unix);
     return (dagen === 1 ? "morgen " : dagen > 1 ? "overmorgen " : "") + tijd(unix);
   };
+  const dagKop = (unix) => {
+    const dagen = dagenVanaf(unix);
+    return dagen === 0 ? "Vandaag" : dagen === 1 ? "Morgen" : new Date(unix * 1000).toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "long" });
+  };
+  const klem = (v, a, b) => Math.min(b, Math.max(a, v));
 
-  class ZonneburenEnergieplanCard extends HTMLElement {
+  // De sensoren van de integratie dragen een attribuut "zonneburen" met hun soort. Oudere versies niet:
+  // dan herkennen we ze aan hun attributen.
+  const SOORT = {
+    energieplan: (s) => s.attributes.zonneburen === "energieplan" || Array.isArray(s.attributes.kwartieren),
+    wijk: (s) => s.attributes.zonneburen === "wijk" || Array.isArray(s.attributes.huizen),
+    buurtbatterij: (s) => s.attributes.zonneburen === "buurtbatterij",
+  };
+  const zoek = (hass, soort) => {
+    if (!hass || !hass.states || !SOORT[soort]) return undefined;
+    return Object.keys(hass.states).filter((id) => id.startsWith("sensor.")).sort().find((id) => SOORT[soort](hass.states[id]));
+  };
+  // Een andere entiteit van hetzelfde huis: via het apparaat in de registry, anders op naam.
+  const broer = (hass, id, sleutel, domein) => {
+    if (!hass || !id) return undefined;
+    const reg = hass.entities || {};
+    const eigen = reg[id];
+    if (eigen && eigen.device_id) {
+      const gevonden = Object.values(reg).find((e) => e.device_id === eigen.device_id && e.translation_key === sleutel && e.entity_id.startsWith(domein + "."));
+      if (gevonden) return gevonden.entity_id;
+    }
+    const basis = id.replace(/^sensor\./, "").replace(/_(energieplan|overschot_in_de_wijk|wijk_overschot)$/, "");
+    const naam = `${domein}.${basis}_${sleutel}`;
+    return hass.states[naam] ? naam : undefined;
+  };
+
+  // De basis voor elke kaart: vindt zelf zijn sensor, heeft een editor, en tekent alleen opnieuw als er iets
+  // veranderde (of elke minuut, zodat "nu" meeloopt).
+  class ZbKaart extends HTMLElement {
+    static get soort() { return "energieplan"; }
+    static get schema() { return [{ name: "entity", label: "Sensor", selector: { entity: { integration: "zonneburen", domain: "sensor" } } }]; }
+    static getConfigElement() {
+      const e = document.createElement("zonneburen-kaart-editor");
+      e.schema = this.schema;
+      return e;
+    }
+    static getStubConfig(hass) { return { entity: zoek(hass, this.soort) || "" }; }
+
     setConfig(config) {
-      if (!config || !config.entity) throw new Error("Zonneburen Energieplan: 'entity' is verplicht (de sensor Energieplan).");
-      this._config = config;
-      if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+      this._config = { ...(config || {}) };
+      if (!this.shadowRoot) {
+        this.attachShadow({ mode: "open" });
+        this.shadowRoot.addEventListener("click", (ev) => this._klik(ev));
+      }
+      this._vorige = null;
+      if (this._hass) this.hass = this._hass;
     }
 
-    static getStubConfig() { return { entity: "" }; }
+    getCardSize() { return 4; }
 
-    getCardSize() { return 6; }
+    connectedCallback() {
+      this._tik = setInterval(() => { this._vorige = null; if (this._hass) this.hass = this._hass; }, 60000);
+    }
+    disconnectedCallback() { clearInterval(this._tik); }
+
+    get _entiteit() { return (this._config && this._config.entity) || zoek(this._hass, this.constructor.soort); }
 
     set hass(hass) {
       this._hass = hass;
-      const st = hass.states[this._config.entity];
-      const sleutel = st ? st.last_updated + "|" + st.state : "leeg";
+      if (!this._config) return;
+      const id = this._entiteit;
+      const st = id ? hass.states[id] : undefined;
+      const sleutel = (st ? st.last_updated + "|" + st.state : "leeg") + "|" + this._extraSleutel(hass, id);
       if (sleutel === this._vorige) return;
       this._vorige = sleutel;
-      this._render(st);
+      this._id = id;
+      this.shadowRoot.innerHTML = (st ? this._inhoud(st, hass) : this._leeg()) + `<style>${BASIS_STIJL}${this._stijl()}</style>`;
     }
 
-    _render(st) {
-      if (!st) {
-        this.shadowRoot.innerHTML = `<ha-card><div class="leeg">"${esc(this._config.entity)}" bestaat niet. Kies de sensor Energieplan van de Zonneburen-integratie.</div></ha-card>${this._stijl()}`;
-        return;
-      }
-      const a = st.attributes || {};
-      const kwartieren = Array.isArray(a.kwartieren) ? a.kwartieren : [];
-      const blokken = Array.isArray(a.blokken) ? a.blokken : [];
-      const besparingId = this._config.entity.replace(/energieplan$/, "verwachte_besparing");
-      const besparing = this._hass && this._hass.states[besparingId] ? Number(this._hass.states[besparingId].state) : NaN;
-      const pauze = a.pauzeTot && a.pauzeTot * 1000 > Date.now();
-
-      let tijdlijn = "";
-      if (kwartieren.length > 1) {
-        const B = 600, H = 120, L = 4, R = 4;
-        const t0 = kwartieren[0][0], t1 = kwartieren[kwartieren.length - 1][0] + 900;
-        const x = (t) => L + (t - t0) / (t1 - t0) * (B - L - R);
-        const prijzen = kwartieren.map((k) => k[3]).filter((p) => typeof p === "number").sort((p, q) => p - q);
-        const laag = prijzen[Math.floor(prijzen.length / 10)] ?? 0, hoog = prijzen[Math.floor(prijzen.length * 9 / 10)] ?? 1;
-        const prijs = kwartieren.map((k) => {
-          const f = hoog - laag > 0.0001 ? Math.min(1, Math.max(0, (k[3] - laag) / (hoog - laag))) : 0.5;
-          return `<rect x="${x(k[0]).toFixed(1)}" y="4" width="${(x(k[0] + 900) - x(k[0]) + 0.3).toFixed(1)}" height="12" fill="var(--error-color, #dc2626)" opacity="${(0.08 + f * 0.6).toFixed(2)}"><title>${tijd(k[0])} · ${typeof k[3] === "number" ? euro(k[3]) : "–"} per kWh</title></rect>`;
-        }).join("");
-        const soc = kwartieren.map((k, i) => `${i ? "L" : "M"}${x(k[0] + 900).toFixed(1)} ${(100 - k[2] * 0.7).toFixed(1)}`).join(" ");
-        const standen = kwartieren.map((k) => `<rect x="${x(k[0]).toFixed(1)}" y="${H - 12}" width="${(x(k[0] + 900) - x(k[0]) + 0.3).toFixed(1)}" height="8" fill="${PLAN_KLEUR[k[1]] || "#999"}"><title>${tijd(k[0])}: ${esc(PLAN_ZIN[k[1]] || k[1])}</title></rect>`).join("");
-        const tikken = [];
-        for (let t = Math.ceil(t0 / 21600) * 21600; t < t1; t += 21600) tikken.push(`<text x="${x(t).toFixed(1)}" y="${H + 12}" text-anchor="middle">${tijd(t)}</text>`);
-        tijdlijn = `<svg viewBox="0 0 ${B} ${H + 16}" class="tijdlijn" role="img" aria-label="Tijdlijn van het energieplan">
-          ${prijs}
-          <line x1="${L}" x2="${B - R}" y1="100" y2="100" class="nul"/>
-          <path d="${soc}" class="soc"/>
-          ${standen}${tikken.join("")}
-        </svg>`;
-      }
-
-      // Apparaten: per apparaat een baan onder de tijdlijn en een regel in de lijst.
-      const app = Array.isArray(a.apparaatblokken) ? a.apparaatblokken : [];
-      let banen = "";
-      if (app.length && kwartieren.length > 1) {
-        const t0 = kwartieren[0][0], t1 = kwartieren[kwartieren.length - 1][0] + 900;
-        const pct = (t) => Math.min(100, Math.max(0, (t - t0) / (t1 - t0) * 100));
-        const namen = [...new Set(app.map((b) => b.naam))];
-        banen = `<div class="banen">${namen.map((n) => `<div class="baan"><span>${esc(n)}</span><div class="spoor">${app.filter((b) => b.naam === n).map((b) => {
-          const kleur = b.stand === "blokkeren" ? "var(--disabled-text-color, #9aa1ad)" : b.stand === "laden" ? "var(--info-color, #0284c7)" : "var(--warning-color, #f59e0b)";
-          return `<i style="left:${pct(b.van).toFixed(2)}%;width:${Math.max(0.6, pct(b.tot) - pct(b.van)).toFixed(2)}%;background:${kleur}" title="${esc(b.naam)} · ${dagTijd(b.van)}–${tijd(b.tot)} · ${esc(b.zin)}"></i>`;
-        }).join("")}</div></div>`).join("")}</div>`;
-      }
-      const komend = (this._config.apparaten === false ? [] : app).slice(0, 8);
-      const appLijst = komend.map((b) => `<li style="border-left-color:${b.stand === "blokkeren" ? "var(--disabled-text-color,#9aa1ad)" : "var(--warning-color,#f59e0b)"}"><b>${dagTijd(b.van)}–${tijd(b.tot)}</b><span><strong>${esc(b.naam)}</strong> · ${esc(b.zin)}${b.i === null || b.i === undefined ? " <small>(zelf aanzetten)</small>" : ""}</span></li>`).join("");
-      const geldig = a.geldig_tot ? `<div class="voet">Dit plan staat op ${a.soort === "hub" ? "je hub" : "Home Assistant"} en loopt door tot ${new Date(a.geldig_tot * 1000).toLocaleString("nl-NL", { weekday: "short", hour: "2-digit", minute: "2-digit" })}, ook zonder internet.</div>` : "";
-
-      const lijst = blokken.map((b) => `<li style="border-left-color:${PLAN_KLEUR[b.stand] || "#999"}"><b>${dagTijd(b.van)}–${tijd(b.tot)}</b><span>${esc(b.zin)}</span></li>`).join("");
-
-      this.shadowRoot.innerHTML = `
-        <ha-card>
-          <div class="kop">
-            <div>
-              <div class="titel">${esc(this._config.titel || "Energieplan")}</div>
-              <div class="sub">${pauze ? "Gepauzeerd tot " + tijd(a.pauzeTot) : a.gestart ? "Stuurt je batterij" : a.actief ? "Volgt het plan" : "Alleen advies"}</div>
-            </div>
-            ${isFinite(besparing) ? `<div class="bedrag">${euro(Math.max(0, besparing))}<small>verwachte besparing</small></div>` : ""}
-          </div>
-          <div class="nu">Nu: ${esc(st.state)}${a.afwijking ? ` <small>(${esc(a.afwijking)})</small>` : ""}</div>
-          ${a.geweigerd ? `<div class="melding">Plan geweigerd: ${esc(a.geweigerd)}</div>` : ""}
-          ${a.fout ? `<div class="melding">${esc(a.fout)}</div>` : ""}
-          ${tijdlijn}
-          <div class="legenda"><span><i style="background:var(--info-color,#0284c7)"></i>Bijladen</span><span><i style="background:var(--success-color,#059669)"></i>Uit de batterij</span><span><i class="lijn"></i>Batterij %</span><span><i style="background:var(--error-color,#dc2626);opacity:.5"></i>Prijs</span></div>
-          ${banen}
-          ${lijst ? `<h3>Batterij</h3><ul class="blokken">${lijst}</ul>` : ""}
-          ${appLijst ? `<h3>Apparaten</h3><ul class="blokken">${appLijst}</ul>` : ""}
-          ${geldig}
-        </ha-card>${this._stijl()}`;
+    _extraSleutel() { return ""; }
+    _stijl() { return ""; }
+    _klik() {}
+    _leeg() {
+      return `<ha-card><div class="zb-leeg"><ha-icon icon="mdi:solar-power-variant"></ha-icon><div><b>Nog geen gegevens van Zonneburen</b>
+        <span>Deze kaart vindt de sensor van de Zonneburen-integratie vanzelf zodra die er is. Staat de integratie al?
+        Zet in de webapp bij Energieplan de stand op Adviseren of Sturen; het plan komt dan binnen enkele minuten binnen.</span></div></div></ha-card>`;
     }
-
-    _stijl() {
-      return `<style>
-        ha-card { padding: 16px; }
-        .leeg { color: var(--secondary-text-color); }
-        .kop { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-        .titel { font-size: 1.15rem; font-weight: 700; color: var(--primary-text-color); }
-        .sub { color: var(--secondary-text-color); font-size: .85rem; }
-        .bedrag { font-size: 1.6rem; font-weight: 800; text-align: right; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
-        .bedrag small { display: block; font-size: .75rem; font-weight: 500; color: var(--secondary-text-color); }
-        .nu { margin: 10px 0; font-weight: 600; color: var(--primary-text-color); }
-        .nu small { font-weight: 400; color: var(--secondary-text-color); }
-        .melding { margin: 6px 0; padding: 8px 10px; border-radius: 8px; background: rgba(220, 38, 38, .1); font-size: .85rem; }
-        .tijdlijn { width: 100%; height: auto; display: block; margin-top: 6px; }
-        .tijdlijn text { font-size: 11px; fill: var(--secondary-text-color); }
-        .tijdlijn .soc { fill: none; stroke: var(--success-color, #059669); stroke-width: 2; stroke-dasharray: 5 4; }
-        .tijdlijn .nul { stroke: var(--divider-color); }
-        .legenda { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .78rem; color: var(--secondary-text-color); margin-top: 6px; }
-        .legenda i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
-        .legenda i.lijn { height: 2px; background: var(--success-color, #059669); vertical-align: 3px; }
-        .blokken { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
-        .blokken li { display: grid; grid-template-columns: 9.5rem 1fr; gap: 10px; padding: 8px 10px; border-radius: 8px; background: var(--secondary-background-color); border-left: 4px solid; font-size: .9rem; }
-        .blokken b { font-variant-numeric: tabular-nums; }
-        .blokken small { color: var(--secondary-text-color); }
-        .banen { margin-top: 10px; display: grid; gap: 4px; }
-        .baan { display: grid; grid-template-columns: 6.5rem 1fr; align-items: center; gap: 8px; font-size: .8rem; color: var(--secondary-text-color); }
-        .baan span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .spoor { position: relative; height: 12px; border-radius: 6px; background: var(--secondary-background-color, rgba(127,127,127,.12)); }
-        .spoor i { position: absolute; top: 0; bottom: 0; border-radius: 6px; }
-        h3 { margin: 14px 0 0; font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--secondary-text-color); }
-        .voet { margin-top: 12px; font-size: .78rem; color: var(--secondary-text-color); }
-      </style>`;
+    _toonMeer(id) {
+      this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: id || this._id } }));
     }
   }
 
-  customElements.define("zonneburen-energieplan-card", ZonneburenEnergieplanCard);
+  const BASIS_STIJL = `
+    :host { --zb-zon: ${KLEUR.zon}; --zb-groen: ${KLEUR.groen}; --zb-lucht: ${KLEUR.lucht}; --zb-violet: ${KLEUR.violet}; --zb-rood: ${KLEUR.rood};
+            --zb-zacht: var(--secondary-background-color, rgba(127,127,127,.1)); --zb-lijn: var(--divider-color, rgba(127,127,127,.2)); }
+    ha-card { padding: 16px; container-type: inline-size; overflow: hidden; }
+    .zb-kop { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .zb-titel { font-size: 1.1rem; font-weight: 700; color: var(--primary-text-color); line-height: 1.3; }
+    .zb-sub { color: var(--secondary-text-color); font-size: .85rem; margin-top: 2px; }
+    .zb-leeg { display: flex; gap: 14px; align-items: flex-start; color: var(--secondary-text-color); line-height: 1.5; }
+    .zb-leeg ha-icon { --mdc-icon-size: 32px; color: var(--zb-zon); flex: none; }
+    .zb-leeg b { display: block; color: var(--primary-text-color); }
+    .zb-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; font-size: .78rem; font-weight: 600;
+               background: var(--zb-zacht); color: var(--primary-text-color); white-space: nowrap; }
+    .zb-chip.goed { background: rgba(5,150,105,.14); color: var(--zb-groen); }
+    .zb-chip.let-op { background: rgba(245,158,11,.16); color: #b45309; }
+    .zb-chip.fout { background: rgba(220,38,38,.12); color: var(--zb-rood); }
+    .zb-segment { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--zb-zacht); max-width: 100%; overflow-x: auto; }
+    .zb-segment button { border: 0; background: none; padding: 5px 11px; border-radius: 8px; font: inherit; font-size: .8rem; font-weight: 600;
+                         color: var(--secondary-text-color); cursor: pointer; white-space: nowrap; }
+    .zb-segment button.aan { background: var(--card-background-color, #fff); color: var(--primary-text-color); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+    .zb-melding { margin: 8px 0; padding: 8px 12px; border-radius: 10px; background: rgba(220,38,38,.1); font-size: .85rem; color: var(--primary-text-color); }
+    .zb-melding.info { background: rgba(2,132,199,.1); }
+    h3.zb-h { margin: 16px 0 8px; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--secondary-text-color); }
+    .zb-voet { margin-top: 12px; font-size: .78rem; color: var(--secondary-text-color); line-height: 1.45; }
+  `;
+
+  // ------------------------------------------------------------------ Kaart: Energieplan (tijdlijn)
+
+  class ZonneburenEnergieplanCard extends ZbKaart {
+    static get schema() {
+      return [
+        { name: "entity", label: "Sensor Energieplan", selector: { entity: { integration: "zonneburen", domain: "sensor" } } },
+        { name: "titel", label: "Titel", selector: { text: {} } },
+        { name: "uren", label: "Uren vooruit", selector: { number: { min: 6, max: 48, step: 6, mode: "slider" } } },
+        { name: "apparaten", label: "Apparaten tonen", selector: { boolean: {} } },
+      ];
+    }
+    getCardSize() { return 6; }
+
+    _inhoud(st, hass) {
+      const a = st.attributes || {};
+      const nu = Date.now() / 1000;
+      const uren = Number(this._config.uren) || 36;
+      const rijen = Array.isArray(a.schema) && a.schema.length ? a.schema.map((r) => ({ t: r[0], stand: r[1], prijs: r[2], soc: r[9], bat: r[6] }))
+        : (Array.isArray(a.kwartieren) ? a.kwartieren.map((k) => ({ t: k[0], stand: k[1], soc: k[2], prijs: k[3] })) : []);
+      const zicht = rijen.filter((r) => r.t < nu + uren * 3600);
+      const besparingId = broer(hass, this._id, "verwachte_besparing", "sensor");
+      const besparing = besparingId ? Number(hass.states[besparingId].state) : NaN;
+      const pauze = a.pauzeTot && a.pauzeTot * 1000 > Date.now();
+      const status = pauze ? ["let-op", "Gepauzeerd tot " + tijd(a.pauzeTot)] : a.gestart ? ["goed", "Stuurt je batterij"]
+        : a.advies ? ["", "Alleen advies"] : a.actief ? ["goed", "Volgt het plan"] : ["", "Alleen advies"];
+
+      let tijdlijn = "";
+      if (zicht.length > 1) {
+        const B = 640, H = 170, L = 34, R = 8, PT = 6, PH = 16, ST = H - 16, SH = 10;
+        const t0 = zicht[0].t, t1 = zicht[zicht.length - 1].t + KWARTIER;
+        const x = (t) => L + (t - t0) / (t1 - t0) * (B - L - R);
+        const yS = (soc) => 30 + (1 - soc / 100) * (ST - 38);
+        const prijzen = zicht.map((r) => r.prijs).filter((p) => typeof p === "number").sort((p, q) => p - q);
+        const laag = prijzen[Math.floor(prijzen.length / 10)] ?? 0, hoog = prijzen[Math.floor(prijzen.length * 9 / 10)] ?? 1;
+        const prijs = zicht.map((r) => {
+          if (typeof r.prijs !== "number") return "";
+          const f = hoog - laag > 0.0001 ? klem((r.prijs - laag) / (hoog - laag), 0, 1) : 0.5;
+          return `<rect x="${x(r.t).toFixed(1)}" y="${PT}" width="${(x(r.t + KWARTIER) - x(r.t) + 0.4).toFixed(1)}" height="${PH}" rx="1"
+            fill="hsl(${(130 - f * 130).toFixed(0)} 70% 45%)" opacity=".75"><title>${tijd(r.t)} · ${euro3(r.prijs)} per kWh</title></rect>`;
+        }).join("");
+        const lijn = zicht.map((r, i) => `${i ? "L" : "M"}${x(r.t + KWARTIER).toFixed(1)} ${yS(r.soc).toFixed(1)}`).join(" ");
+        const vlak = `${lijn} L${x(t1).toFixed(1)} ${yS(0).toFixed(1)} L${x(zicht[0].t + KWARTIER).toFixed(1)} ${yS(0).toFixed(1)} Z`;
+        const standen = zicht.map((r) => `<rect x="${x(r.t).toFixed(1)}" y="${ST}" width="${(x(r.t + KWARTIER) - x(r.t) + 0.4).toFixed(1)}" height="${SH}"
+          fill="${PLAN_KLEUR[r.stand] || KLEUR.grijs}"><title>${tijd(r.t)}: ${esc(PLAN_ZIN[r.stand] || r.stand)}</title></rect>`).join("");
+        const raster = [0, 50, 100].map((s) => `<line x1="${L}" x2="${B - R}" y1="${yS(s).toFixed(1)}" y2="${yS(s).toFixed(1)}" class="raster"/><text x="${L - 6}" y="${(yS(s) + 3.5).toFixed(1)}" text-anchor="end">${s}%</text>`).join("");
+        const stap = uren <= 12 ? 7200 : uren <= 24 ? 10800 : 21600;
+        const tikken = [];
+        for (let t = Math.ceil(t0 / stap) * stap; t < t1; t += stap) {
+          const d = new Date(t * 1000);
+          const label = d.getHours() === 0 ? d.toLocaleDateString("nl-NL", { weekday: "short" }) : tijd(t);
+          tikken.push(`<line x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="${PT + PH + 2}" y2="${ST}" class="${d.getHours() === 0 ? "middernacht" : "raster"}"/><text x="${x(t).toFixed(1)}" y="${H + 12}" text-anchor="middle">${label}</text>`);
+        }
+        const nuX = nu > t0 && nu < t1 ? `<line x1="${x(nu).toFixed(1)}" x2="${x(nu).toFixed(1)}" y1="${PT}" y2="${ST + SH}" class="nu"/><text x="${(x(nu) + 4).toFixed(1)}" y="${PT + PH + 12}" text-anchor="start" class="nu-t">nu</text>` : "";
+        tijdlijn = `<svg viewBox="0 0 ${B} ${H + 16}" class="tijdlijn" role="img" aria-label="Tijdlijn van het energieplan">
+          ${prijs}${raster}${tikken.join("")}
+          <path d="${vlak}" class="soc-vlak"/><path d="${lijn}" class="soc"/>
+          ${standen}${nuX}
+        </svg>`;
+      }
+
+      // Apparaten: per apparaat een baan op dezelfde tijdas.
+      const app = (Array.isArray(a.apparaatblokken) ? a.apparaatblokken : []).filter((b) => b.van < nu + uren * 3600);
+      let banen = "";
+      if (this._config.apparaten !== false && app.length && zicht.length > 1) {
+        const t0 = zicht[0].t, t1 = zicht[zicht.length - 1].t + KWARTIER;
+        const pct = (t) => klem((t - t0) / (t1 - t0) * 100, 0, 100);
+        const namen = [...new Set(app.map((b) => b.naam))];
+        banen = `<h3 class="zb-h">Apparaten</h3><div class="banen">${namen.map((n) => `<div class="baan"><span title="${esc(n)}">${esc(n)}</span><div class="spoor">${app.filter((b) => b.naam === n).map((b) => {
+          const kleur = b.stand === "blokkeren" ? KLEUR.grijs : b.stand === "laden" ? KLEUR.lucht : KLEUR.zon;
+          return `<i style="left:${pct(b.van).toFixed(2)}%;width:${Math.max(0.8, pct(b.tot) - pct(b.van)).toFixed(2)}%;background:${kleur}" title="${esc(b.naam)} · ${dagTijd(b.van)}–${tijd(b.tot)} · ${esc(b.zin || "")}"></i>`;
+        }).join("")}</div></div>`).join("")}</div>`;
+      }
+
+      const blokken = (Array.isArray(a.blokken) ? a.blokken : []).slice(0, 5);
+      const lijst = blokken.map((b) => `<li style="--k:${PLAN_KLEUR[b.stand] || KLEUR.grijs}"><ha-icon icon="${PLAN_ICOON[b.stand] || "mdi:battery"}"></ha-icon><b>${b.van <= nu ? "nu" : dagTijd(b.van)} – ${tijd(b.tot)}</b><span>${esc(b.zin || PLAN_ZIN[b.stand] || b.stand)}</span></li>`).join("");
+
+      return `<ha-card>
+        <div class="zb-kop">
+          <div>
+            <div class="zb-titel">${esc(this._config.titel || "Energieplan")}</div>
+            <div class="zb-sub"><span class="zb-chip ${status[0]}">${esc(status[1])}</span></div>
+          </div>
+          ${isFinite(besparing) ? `<div class="bedrag">${euro(Math.max(0, besparing))}<small>verwachte besparing</small></div>` : ""}
+        </div>
+        <div class="nu-zin" style="--k:${PLAN_KLEUR[(rijen.find((r) => r.t <= nu && nu < r.t + KWARTIER) || {}).stand] || KLEUR.grijs}"><i></i>Nu: ${esc(st.state)}${a.afwijking ? ` <small>(${esc(a.afwijking)})</small>` : ""}</div>
+        ${a.geweigerd ? `<div class="zb-melding">Plan geweigerd: ${esc(a.geweigerd)}</div>` : ""}
+        ${a.fout ? `<div class="zb-melding">${esc(a.fout)}</div>` : ""}
+        ${tijdlijn}
+        <div class="legenda">
+          <span><i style="background:${KLEUR.lucht}"></i>Bijladen</span><span><i style="background:${KLEUR.groen}"></i>Uit de batterij</span>
+          <span><i style="background:${KLEUR.violet}"></i>Bewaren</span><span><i style="background:${KLEUR.zon}"></i>Alleen zon</span>
+          <span><i class="lijn"></i>Lading</span><span><i style="background:linear-gradient(90deg,hsl(130 70% 45%),hsl(0 70% 45%))"></i>Prijs laag → hoog</span>
+        </div>
+        ${lijst ? `<h3 class="zb-h">De komende blokken</h3><ul class="blokken">${lijst}</ul>` : ""}
+        ${banen}
+        ${a.geldig_tot ? `<div class="zb-voet">${a.advies ? "Dit is een advies: zet in de webapp de stand op Sturen om het uit te voeren. " : "Dit plan staat in Home Assistant en loopt door, ook zonder internet. "}Geldig tot ${new Date(a.geldig_tot * 1000).toLocaleString("nl-NL", { weekday: "short", hour: "2-digit", minute: "2-digit" })}.</div>` : ""}
+      </ha-card>`;
+    }
+
+    _stijl() {
+      return `
+        .bedrag { font-size: 1.6rem; font-weight: 800; text-align: right; color: var(--primary-text-color); font-variant-numeric: tabular-nums; line-height: 1.1; }
+        .bedrag small { display: block; font-size: .72rem; font-weight: 500; color: var(--secondary-text-color); }
+        .nu-zin { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; font-weight: 600; color: var(--primary-text-color); }
+        .nu-zin i { width: 10px; height: 10px; border-radius: 50%; background: var(--k); box-shadow: 0 0 0 4px color-mix(in srgb, var(--k) 25%, transparent); }
+        .nu-zin small { font-weight: 400; color: var(--secondary-text-color); }
+        .tijdlijn { width: 100%; height: auto; display: block; }
+        .tijdlijn text { font-size: 10.5px; fill: var(--secondary-text-color); }
+        .tijdlijn .raster { stroke: var(--zb-lijn); stroke-dasharray: 2 4; }
+        .tijdlijn .middernacht { stroke: var(--zb-lijn); }
+        .tijdlijn .soc { fill: none; stroke: var(--zb-groen); stroke-width: 2.2; stroke-linejoin: round; }
+        .tijdlijn .soc-vlak { fill: var(--zb-groen); opacity: .12; }
+        .tijdlijn .nu { stroke: var(--primary-text-color); stroke-width: 1.5; stroke-dasharray: 3 3; opacity: .7; }
+        .tijdlijn .nu-t { font-weight: 700; fill: var(--primary-text-color); }
+        .legenda { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .75rem; color: var(--secondary-text-color); margin-top: 4px; }
+        .legenda i { display: inline-block; width: 12px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+        .legenda i.lijn { height: 3px; background: var(--zb-groen); vertical-align: 2px; }
+        .blokken { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+        .blokken li { display: grid; grid-template-columns: auto 8.5rem 1fr; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px;
+                      background: color-mix(in srgb, var(--k) 10%, var(--zb-zacht)); border-left: 4px solid var(--k); font-size: .88rem; }
+        .blokken ha-icon { --mdc-icon-size: 18px; color: var(--k); }
+        .blokken b { font-variant-numeric: tabular-nums; }
+        .banen { display: grid; gap: 5px; }
+        .baan { display: grid; grid-template-columns: 7rem 1fr; align-items: center; gap: 8px; font-size: .8rem; color: var(--secondary-text-color); }
+        .baan span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .spoor { position: relative; height: 14px; border-radius: 7px; background: var(--zb-zacht); }
+        .spoor i { position: absolute; top: 0; bottom: 0; border-radius: 7px; }
+        @container (max-width: 420px) { .blokken li { grid-template-columns: auto 1fr; } .blokken li span { grid-column: 2; } .baan { grid-template-columns: 5rem 1fr; } }
+      `;
+    }
+  }
+
+  // ------------------------------------------------------------------ Kaart: Per kwartier (schema)
+
+  class ZonneburenKwartierCard extends ZbKaart {
+    static get schema() {
+      return [
+        { name: "entity", label: "Sensor Energieplan", selector: { entity: { integration: "zonneburen", domain: "sensor" } } },
+        { name: "titel", label: "Titel", selector: { text: {} } },
+        { name: "filter", label: "Standaard tonen", selector: { select: { mode: "dropdown", options: [
+          { value: "ingrepen", label: "Alleen ingrepen" }, { value: "24", label: "Komende 24 uur" }, { value: "alles", label: "Het hele plan" }] } } },
+        { name: "max_hoogte", label: "Maximale hoogte (px, 0 = alles)", selector: { number: { min: 0, max: 2000, step: 50, mode: "box" } } },
+      ];
+    }
+    getCardSize() { return 8; }
+    _extraSleutel() { return this._filter || ""; }
+
+    _klik(ev) {
+      const knop = ev.target.closest("[data-filter]");
+      if (knop) { this._filter = knop.dataset.filter; this._vorige = null; this.hass = this._hass; }
+    }
+
+    _inhoud(st) {
+      const a = st.attributes || {};
+      const nu = Date.now() / 1000;
+      const filter = this._filter || this._config.filter || "ingrepen";
+      const lasten = Array.isArray(a.schema_lasten) ? a.schema_lasten : (Array.isArray(a.apparaatblokken) ? a.apparaatblokken : []);
+      if (!Array.isArray(a.schema) || !a.schema.length) {
+        return `<ha-card><div class="zb-kop"><div class="zb-titel">${esc(this._config.titel || "Per kwartier")}</div></div>
+          <div class="zb-melding info">Het schema per kwartier komt mee met de nieuwste versie van de Zonneburen-server. Zodra er een nieuw plan is (elk kwartier), verschijnt het hier.</div></ha-card>`;
+      }
+      const alle = a.schema.map((r) => ({ t: r[0], stand: r[1], in: r[2], uit: r[3], zon: r[4], verbruik: r[5], bat: r[6], net: r[7], doel: r[8], soc: r[9], voorspeld: r[10] }))
+        .filter((r) => r.t + KWARTIER > nu);
+      const lastIn = (r) => lasten.filter((l) => l.van < r.t + KWARTIER && l.tot > r.t);
+      const actief = (r) => r.stand !== "zelfverbruik" || Math.abs(r.bat || 0) > 100 || lastIn(r).length > 0;
+      const rijen = filter === "alles" ? alle : filter === "24" ? alle.filter((r) => r.t < nu + 86400) : alle.filter(actief);
+      const prijzen = rijen.map((r) => r.in).filter((p) => typeof p === "number");
+      const pLaag = Math.min(...prijzen), pHoog = Math.max(...prijzen);
+      const batMax = Math.max(500, ...rijen.map((r) => Math.abs(r.bat || 0)));
+      const aantal = rijen.length;
+      const sub = filter === "alles" ? `${aantal} kwartieren, tot het einde van het plan` : filter === "24" ? `${aantal} kwartieren, de komende 24 uur`
+        : aantal ? `${aantal} ${aantal === 1 ? "kwartier" : "kwartieren"} waarin de batterij of een apparaat iets doet` : "geen ingrepen gepland";
+      const W = (w) => (typeof w !== "number" ? "–" : Math.abs(w) >= 1000 ? (Math.abs(w) / 1000).toFixed(1).replace(".", ",") + " kW" : Math.round(Math.abs(w)) + " W");
+
+      let body = "", dag = null;
+      for (const r of rijen) {
+        const d = dagKop(r.t);
+        if (d !== dag) { dag = d; body += `<tr class="dag"><th colspan="9">${esc(d)}</th></tr>`; }
+        const bat = (r.bat || 0) < -50 ? "laad" : (r.bat || 0) > 50 ? "ontlaad" : "";
+        const pp = pHoog - pLaag > 0.005 ? (r.in - pLaag) / (pHoog - pLaag) : 0.5;
+        const nuRij = r.t <= nu && nu < r.t + KWARTIER;
+        const balk = Math.min(1, Math.abs(r.bat || 0) / batMax) * 50;
+        body += `<tr class="${nuRij ? "nu" : ""}">
+          <td class="tijd">${tijd(r.t)}${nuRij ? "<small>nu</small>" : ""}</td>
+          <td class="stand"><span class="chip" style="--k:${PLAN_KLEUR[r.stand] || KLEUR.grijs}">${esc(PLAN_ZIN[r.stand] || r.stand)}</span>${lastIn(r).map((l) => `<span class="chip app"><ha-icon icon="mdi:power-plug"></ha-icon>${esc(l.naam)}${l.stand === "blokkeren" ? " pauze" : ""}</span>`).join("")}</td>
+          <td class="r prijs" data-k="Prijs"><span style="background:hsl(${(130 - klem(pp, 0, 1) * 130).toFixed(0)} 65% 45% / .2)">${euro3(r.in)}${r.voorspeld ? "*" : ""}</span></td>
+          <td class="r" data-k="Zon">${(r.zon || 0) >= 10 ? W(r.zon) : "–"}</td>
+          <td class="r" data-k="Verbruik">${W(r.verbruik)}</td>
+          <td class="bat ${bat}" data-k="${bat === "laad" ? "Laadt" : bat === "ontlaad" ? "Ontlaadt" : "Batterij"}"><span class="balk"><i style="${(r.bat || 0) < 0 ? "right" : "left"}:50%;width:${balk.toFixed(1)}%"></i></span><span>${bat ? `<em>${bat === "laad" ? "laadt " : "ontlaadt "}</em>${W(r.bat)}` : "rust"}</span></td>
+          <td class="r net ${(r.net || 0) < -50 ? "terug" : ""}" data-k="${(r.net || 0) < -50 ? "Terug" : "Net"}">${Math.abs(r.net || 0) < 50 ? "0" : ((r.net < 0 ? "↑ " : "↓ ") + W(r.net))}</td>
+          <td class="r doel" data-k="Netdoel">${typeof r.doel === "number" ? W(r.doel) : ""}</td>
+          <td class="soc" data-k="Lading"><span class="balk"><i style="width:${klem(r.soc || 0, 0, 100)}%"></i></span><span>${Math.round(r.soc || 0)}%</span></td>
+        </tr>`;
+      }
+      const hoogte = Number(this._config.max_hoogte ?? 520);
+      return `<ha-card>
+        <div class="zb-kop">
+          <div><div class="zb-titel">${esc(this._config.titel || "Per kwartier")}</div><div class="zb-sub">${esc(sub)}${a.advies ? ` · <span class="zb-chip">advies</span>` : ""}</div></div>
+          <div class="zb-segment" role="group" aria-label="Welke kwartieren">
+            ${[["ingrepen", "Ingrepen"], ["24", "24 uur"], ["alles", "Hele plan"]].map(([k, l]) => `<button data-filter="${k}" class="${filter === k ? "aan" : ""}">${l}</button>`).join("")}
+          </div>
+        </div>
+        ${aantal ? `<div class="wrap" style="${hoogte > 0 ? `max-height:${hoogte}px` : ""}"><table>
+          <thead><tr><th>Tijd</th><th>Wat er gebeurt</th><th class="r">Prijs</th><th class="r">Zon</th><th class="r">Verbruik</th><th>Batterij</th><th class="r">Net</th><th class="r doel">Netdoel</th><th>Lading</th></tr></thead>
+          <tbody>${body}</tbody></table></div>`
+        : `<div class="zb-melding info">Geen ingrepen gepland: je batterij gebruikt gewoon je eigen stroom. Kies <b>24 uur</b> om alle kwartieren te zien.</div>`}
+        <div class="zb-voet">Prijs per kWh, groen is goedkoop en rood duur binnen deze lijst. * = verwachte prijs. Net: ↓ van het net, ↑ naar het net. Lading aan het eind van het kwartier.</div>
+      </ha-card>`;
+    }
+
+    _stijl() {
+      return `
+        .wrap { overflow: auto; border: 1px solid var(--zb-lijn); border-radius: 12px; overscroll-behavior: contain; }
+        table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .82rem; font-variant-numeric: tabular-nums; }
+        thead th { position: sticky; top: 0; z-index: 2; background: var(--card-background-color, #fff); color: var(--secondary-text-color);
+                   font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; text-align: left; padding: 9px 10px;
+                   border-bottom: 1px solid var(--zb-lijn); white-space: nowrap; }
+        td { padding: 7px 10px; border-bottom: 1px solid var(--zb-lijn); color: var(--primary-text-color); white-space: nowrap; vertical-align: middle; }
+        .r { text-align: right; }
+        tr.dag th { padding: 6px 10px; background: var(--zb-zacht); color: var(--primary-text-color); font-size: .78rem; font-weight: 700; text-align: left; }
+        tr.nu td { background: rgba(2,132,199,.09); }
+        tr.nu td.tijd { box-shadow: inset 3px 0 0 var(--zb-lucht); }
+        td.tijd { font-weight: 700; }
+        td.tijd small { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 99px; background: var(--zb-lucht); color: #fff; font-size: .66rem; vertical-align: 1px; }
+        td.stand { white-space: normal; min-width: 190px; }
+        .chip { display: inline-flex; align-items: center; gap: 5px; margin: 1px 4px 1px 0; padding: 2px 9px 2px 7px; border-radius: 99px; white-space: nowrap;
+                background: color-mix(in srgb, var(--k, #94a3b8) 16%, transparent); font-size: .76rem; font-weight: 600; }
+        .chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--k, #94a3b8); }
+        .chip.app { background: none; border: 1px solid var(--zb-lijn); }
+        .chip.app::before { display: none; }
+        .chip ha-icon { --mdc-icon-size: 13px; }
+        td.prijs span { display: inline-block; padding: 2px 7px; border-radius: 7px; font-weight: 600; }
+        td.net.terug { color: var(--zb-groen); }
+        td.bat, td.soc { min-width: 128px; }
+        td.bat.laad { color: var(--zb-lucht); } td.bat.ontlaad { color: var(--zb-groen); }
+        td.bat:not(.laad):not(.ontlaad) { color: var(--secondary-text-color); }
+        td.bat em { font-style: normal; }
+        .balk { position: relative; display: inline-block; width: 52px; height: 8px; margin-right: 8px; border-radius: 4px; background: var(--zb-zacht); vertical-align: middle; overflow: hidden; }
+        .balk i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; background: var(--zb-violet); }
+        td.bat .balk::after { content: ""; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: var(--zb-lijn); }
+        td.bat .balk i { left: auto; border-radius: 0; background: currentColor; }
+        @container (max-width: 640px) {
+          thead { display: none; }
+          table, tbody { display: block; }
+          tr.dag { display: block; } tr.dag th { display: block; }
+          tbody tr:not(.dag) { display: grid; grid-template-columns: 2.7rem repeat(6, minmax(0, 1fr)); gap: 6px 8px; padding: 10px; border-bottom: 1px solid var(--zb-lijn); }
+          tbody tr.nu { background: rgba(2,132,199,.09); box-shadow: inset 3px 0 0 var(--zb-lucht); }
+          tbody tr.nu td { background: none; } tr.nu td.tijd { box-shadow: none; }
+          td { display: block; padding: 0; border: 0; min-width: 0 !important; white-space: normal; text-align: left !important; }
+          td.doel { display: none; }
+          td.tijd { grid-row: 1 / span 3; } td.tijd small { display: block; width: fit-content; margin: 4px 0 0; }
+          td.stand { grid-column: 2 / span 4; grid-row: 1; } .chip { white-space: normal; }
+          td.prijs { grid-column: 6 / span 2; grid-row: 1; text-align: right !important; white-space: nowrap; }
+          td[data-k]:not(.prijs) { grid-row: 2; grid-column: span 2; font-size: .8rem; font-weight: 600; white-space: nowrap; }
+          td[data-k]:not(.prijs)::before { content: attr(data-k); display: block; color: var(--secondary-text-color); font-size: .66rem; font-weight: 500; }
+          td.bat[data-k], td.soc[data-k] { grid-row: 3; grid-column: span 3; }
+          td.bat[data-k] { grid-column: 2 / span 3; }
+          td.bat em { display: none; }
+          .balk { display: block; width: 100%; height: 4px; margin: 2px 0 3px; }
+        }
+      `;
+    }
+  }
+
+  // ------------------------------------------------------------------ Kaart: Batterij nu (status en bediening)
+
+  class ZonneburenBatterijCard extends ZbKaart {
+    static get schema() {
+      return [
+        { name: "entity", label: "Sensor Energieplan", selector: { entity: { integration: "zonneburen", domain: "sensor" } } },
+        { name: "titel", label: "Titel", selector: { text: {} } },
+        { name: "bediening", label: "Knoppen tonen (pauzeren, uitvoeren)", selector: { boolean: {} } },
+      ];
+    }
+    getCardSize() { return 4; }
+    _extraSleutel(hass, id) {
+      const sw = broer(hass, id, "energieplan_uitvoeren", "switch");
+      return sw && hass.states[sw] ? hass.states[sw].state : "";
+    }
+
+    _klik(ev) {
+      const knop = ev.target.closest("[data-actie]");
+      if (!knop || !this._hass) return;
+      const [domein, sleutel] = knop.dataset.actie.split(":");
+      const id = broer(this._hass, this._id, sleutel, domein);
+      if (!id) return;
+      if (domein === "switch") this._hass.callService("switch", "toggle", { entity_id: id });
+      else this._hass.callService("button", "press", { entity_id: id });
+    }
+
+    _inhoud(st, hass) {
+      const a = st.attributes || {};
+      const nu = Date.now() / 1000;
+      const rij = (Array.isArray(a.schema) ? a.schema : []).find((r) => r[0] <= nu && nu < r[0] + KWARTIER);
+      const stand = rij ? rij[1] : a.stand || "zelfverbruik";
+      const kleur = PLAN_KLEUR[stand] || KLEUR.grijs;
+      const soc = typeof a.soc_nu === "number" ? a.soc_nu : rij ? rij[9] : null;
+      const batW = typeof a.batterij_w === "number" ? a.batterij_w : rij ? rij[6] : null;
+      const netW = typeof a.net_w === "number" ? a.net_w : rij ? rij[7] : null;
+      const prijs = rij ? rij[2] : null;
+      const pauze = a.pauzeTot && a.pauzeTot * 1000 > Date.now();
+      const sw = broer(hass, this._id, "energieplan_uitvoeren", "switch");
+      const uitvoeren = sw && hass.states[sw] ? hass.states[sw].state === "on" : null;
+      const status = pauze ? ["let-op", "mdi:pause-circle", "Gepauzeerd tot " + tijd(a.pauzeTot)]
+        : a.gestart ? ["goed", "mdi:check-circle", "Zonneburen stuurt je batterij"]
+        : a.advies ? ["", "mdi:eye", "Alleen advies: zet de stand op Sturen in de webapp"]
+        : a.actief ? ["goed", "mdi:check-circle", "Klaar om te sturen"]
+        : uitvoeren === false ? ["let-op", "mdi:power", "Energieplan uitvoeren staat uit"]
+        : ["", "mdi:information", "Alleen advies"];
+      const besparingId = broer(hass, this._id, "verwachte_besparing", "sensor");
+      const besparing = besparingId ? Number(hass.states[besparingId].state) : NaN;
+      const volgende = (Array.isArray(a.blokken) ? a.blokken : []).filter((b) => b.van > nu).slice(0, 2);
+      const W = (w) => (Math.abs(w) >= 1000 ? (Math.abs(w) / 1000).toFixed(1).replace(".", ",") + " kW" : Math.round(Math.abs(w)) + " W");
+      const batTekst = batW === null ? "–" : Math.abs(batW) < 50 ? "rust" : batW < 0 ? "laadt " + W(batW) : "levert " + W(batW);
+      const netTekst = netW === null ? "–" : Math.abs(netW) < 50 ? "in balans" : netW < 0 ? "↑ " + W(netW) + " terug" : "↓ " + W(netW) + " afname";
+      const knoppen = this._config.bediening === false ? "" : `<div class="knoppen">
+          ${sw ? `<button data-actie="switch:energieplan_uitvoeren" class="${uitvoeren ? "aan" : ""}"><ha-icon icon="mdi:${uitvoeren ? "toggle-switch" : "toggle-switch-off-outline"}"></ha-icon>Energieplan uitvoeren</button>` : ""}
+          ${pauze ? `<button data-actie="button:energieplan_hervat"><ha-icon icon="mdi:play"></ha-icon>Hervatten</button>`
+                  : `<button data-actie="button:energieplan_pauze"><ha-icon icon="mdi:pause"></ha-icon>2 uur pauzeren</button>`}
+        </div>`;
+      return `<ha-card style="--k:${kleur}">
+        <div class="held">
+          <div class="ring" style="--soc:${soc === null ? 0 : klem(soc, 0, 100)}">
+            <div><b>${soc === null ? "–" : procent(soc)}</b><small>lading</small></div>
+          </div>
+          <div class="tekst">
+            <div class="boven">${esc(this._config.titel || "Je batterij")}</div>
+            <div class="stand"><ha-icon icon="${PLAN_ICOON[stand] || "mdi:battery"}"></ha-icon>${esc(PLAN_ZIN[stand] || st.state)}</div>
+            <span class="zb-chip ${status[0]}"><ha-icon icon="${status[1]}"></ha-icon>${esc(status[2])}</span>
+            ${a.afwijking ? `<div class="afwijking">${esc(a.afwijking)}</div>` : ""}
+          </div>
+        </div>
+        <div class="cijfers">
+          <div><small>Batterij nu</small><b>${batTekst}</b></div>
+          <div><small>Net nu</small><b>${netTekst}</b></div>
+          <div><small>Prijs nu</small><b>${prijs === null ? "–" : euro3(prijs)}</b></div>
+          <div><small>Verwachte besparing</small><b>${isFinite(besparing) ? euro(Math.max(0, besparing)) : "–"}</b></div>
+        </div>
+        ${volgende.length ? `<div class="straks">${volgende.map((b) => `<span style="--k:${PLAN_KLEUR[b.stand] || KLEUR.grijs}"><i></i>${dagTijd(b.van)} · ${esc(b.zin || PLAN_ZIN[b.stand] || b.stand)}</span>`).join("")}</div>` : ""}
+        ${a.geweigerd ? `<div class="zb-melding">Plan geweigerd: ${esc(a.geweigerd)}</div>` : ""}
+        ${a.fout ? `<div class="zb-melding">${esc(a.fout)}</div>` : ""}
+        ${knoppen}
+      </ha-card>`;
+    }
+
+    _stijl() {
+      return `
+        ha-card { background: linear-gradient(135deg, color-mix(in srgb, var(--k) 12%, var(--ha-card-background, var(--card-background-color, #fff))), var(--ha-card-background, var(--card-background-color, #fff)) 60%); }
+        .held { display: flex; gap: 18px; align-items: center; }
+        .ring { --soc: 0; flex: none; width: 104px; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center;
+                background: conic-gradient(var(--zb-groen) calc(var(--soc) * 1%), var(--zb-zacht) 0); }
+        .ring > div { width: 78%; aspect-ratio: 1; border-radius: 50%; background: var(--ha-card-background, var(--card-background-color, #fff)); display: grid; place-content: center; text-align: center; }
+        .ring b { font-size: 1.6rem; font-weight: 800; color: var(--primary-text-color); line-height: 1; }
+        .ring small { font-size: .7rem; color: var(--secondary-text-color); }
+        .tekst { min-width: 0; display: grid; gap: 6px; justify-items: start; }
+        .boven { font-size: .8rem; font-weight: 600; color: var(--secondary-text-color); }
+        .stand { display: flex; align-items: center; gap: 8px; font-size: 1.25rem; font-weight: 700; color: var(--primary-text-color); line-height: 1.25; }
+        .stand ha-icon { --mdc-icon-size: 26px; color: var(--k); }
+        .zb-chip ha-icon { --mdc-icon-size: 15px; }
+        .afwijking { font-size: .8rem; color: var(--secondary-text-color); }
+        .cijfers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
+        .cijfers div { padding: 10px 12px; border-radius: 12px; background: var(--zb-zacht); min-width: 0; }
+        .cijfers small { display: block; font-size: .7rem; font-weight: 600; color: var(--secondary-text-color); }
+        .cijfers b { font-size: .98rem; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
+        .straks { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font-size: .82rem; color: var(--secondary-text-color); }
+        .straks i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--k); margin-right: 6px; }
+        .knoppen { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+        .knoppen button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 99px; border: 1px solid var(--zb-lijn);
+                          background: var(--ha-card-background, var(--card-background-color, #fff)); color: var(--primary-text-color); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
+        .knoppen button.aan { border-color: var(--zb-groen); color: var(--zb-groen); }
+        .knoppen ha-icon { --mdc-icon-size: 18px; }
+        @container (max-width: 460px) { .cijfers { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ring { width: 86px; } }
+      `;
+    }
+  }
+
+  // ------------------------------------------------------------------ Kaart: Apparaten in het plan
+
+  class ZonneburenApparatenCard extends ZbKaart {
+    static get schema() {
+      return [
+        { name: "entity", label: "Sensor Energieplan", selector: { entity: { integration: "zonneburen", domain: "sensor" } } },
+        { name: "titel", label: "Titel", selector: { text: {} } },
+      ];
+    }
+    _extraSleutel(hass) {
+      return Object.keys(hass.states).filter((id) => "volgt_plan" in (hass.states[id].attributes || {})).map((id) => hass.states[id].last_updated).join();
+    }
+    _klik(ev) {
+      const regel = ev.target.closest("[data-id]");
+      if (regel) this._toonMeer(regel.dataset.id);
+    }
+
+    _inhoud(st, hass) {
+      const nu = Date.now() / 1000;
+      const ids = Object.keys(hass.states).filter((id) => id.startsWith("sensor.") && "volgt_plan" in (hass.states[id].attributes || {})).sort();
+      const t0 = nu, t1 = nu + 86400;
+      const pct = (t) => klem((t - t0) / (t1 - t0) * 100, 0, 100);
+      // Op hele uren: elke zes uur vanaf het eerstvolgende zesvoud.
+      const eerste = new Date(); eerste.setMinutes(0, 0, 0); eerste.setHours(Math.ceil((eerste.getHours() + 1) / 6) * 6);
+      const tikken = [0, 6, 12, 18].map((u) => eerste.getTime() / 1000 + u * 3600).filter((t) => t < t1)
+        .map((t) => `<span style="left:${pct(t)}%">${tijd(t)}</span>`).join("");
+      const regels = ids.map((id) => {
+        const s = hass.states[id];
+        const naam = (s.attributes.friendly_name || id).replace(/^.*Energieplan /, "");
+        const blokken = (s.attributes.blokken || []).filter((b) => b.van < t1);
+        const aan = s.attributes.aan_volgens_plan === true;
+        return `<li data-id="${esc(id)}" class="${aan ? "aan" : ""}">
+          <div class="naam"><ha-icon icon="${aan ? "mdi:power-plug" : "mdi:power-plug-off-outline"}"></ha-icon><div><b>${esc(naam)}</b><small>${esc(s.state)}</small></div></div>
+          <div class="spoor">${blokken.map((b) => {
+            const kleur = b.stand === "blokkeren" ? KLEUR.grijs : b.stand === "laden" ? KLEUR.lucht : KLEUR.zon;
+            return `<i style="left:${pct(b.van).toFixed(2)}%;width:${Math.max(1, pct(b.tot) - pct(b.van)).toFixed(2)}%;background:${kleur}" title="${dagTijd(b.van)}–${tijd(b.tot)} · ${esc(b.zin || "")}"></i>`;
+          }).join("")}</div>
+        </li>`;
+      }).join("");
+      return `<ha-card>
+        <div class="zb-kop"><div><div class="zb-titel">${esc(this._config.titel || "Apparaten in het plan")}</div><div class="zb-sub">de komende 24 uur</div></div></div>
+        ${ids.length ? `<div class="as"><span></span><div>${tikken}</div></div><ul>${regels}</ul>`
+          : `<div class="zb-melding info">Er staan nog geen apparaten in het energieplan. Zet ze aan bij Energieplan in de webapp, onder Apparaten.</div>`}
+      </ha-card>`;
+    }
+
+    _stijl() {
+      return `
+        ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+        li { display: grid; grid-template-columns: minmax(0, 11rem) 1fr; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 12px; background: var(--zb-zacht); cursor: pointer; }
+        li.aan { box-shadow: inset 3px 0 0 var(--zb-zon); }
+        .naam { display: flex; gap: 10px; align-items: center; min-width: 0; }
+        .naam ha-icon { --mdc-icon-size: 20px; color: var(--secondary-text-color); flex: none; }
+        li.aan .naam ha-icon { color: var(--zb-zon); }
+        .naam div { min-width: 0; }
+        .naam b { display: block; font-size: .9rem; color: var(--primary-text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .naam small { display: block; font-size: .75rem; color: var(--secondary-text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .spoor { position: relative; height: 16px; border-radius: 8px; background: var(--ha-card-background, var(--card-background-color, #fff)); }
+        .spoor i { position: absolute; top: 0; bottom: 0; border-radius: 8px; }
+        .as { display: grid; grid-template-columns: minmax(0, 11rem) 1fr; gap: 12px; padding: 0 10px 4px; }
+        .as > div { position: relative; height: 14px; font-size: .68rem; color: var(--secondary-text-color); }
+        .as span { position: absolute; transform: translateX(-50%); }
+        @container (max-width: 420px) { li, .as { grid-template-columns: minmax(0, 7.5rem) 1fr; } }
+      `;
+    }
+  }
+
+  // ------------------------------------------------------------------ Kaart: Virtuele buurtbatterij
+
+  class ZonneburenBuurtbatterijCard extends ZbKaart {
+    static get soort() { return "buurtbatterij"; }
+    static get schema() {
+      return [
+        { name: "entity", label: "Sensor Buurtbatterij", selector: { entity: { integration: "zonneburen", domain: "sensor" } } },
+        { name: "titel", label: "Titel", selector: { text: {} } },
+      ];
+    }
+
+    _inhoud(st) {
+      const a = st.attributes || {};
+      if (!a.aantal) {
+        return `<ha-card><div class="zb-kop"><div class="zb-titel">${esc(this._config.titel || "Virtuele buurtbatterij")}</div></div>
+          <div class="zb-melding info">Nog geen thuisbatterijen in de buurtbatterij. Heb je een batterij? Zet in de webapp bij je energieplan <b>Meedoen met de wijk</b> aan.</div>
+          ${this._gedeeld(a)}</ha-card>`;
+      }
+      const p = typeof a.procent === "number" ? a.procent : 0;
+      const w = a.wijk_w || 0;
+      const richting = w < -100 ? "laadt" : w > 100 ? "levert" : "";
+      const W = (v) => (Math.abs(v) >= 1000 ? (Math.abs(v) / 1000).toFixed(1).replace(".", ",") + " kW" : Math.round(Math.abs(v)) + " W");
+      return `<ha-card>
+        <div class="zb-kop">
+          <div><div class="zb-titel">${esc(this._config.titel || "Virtuele buurtbatterij")}</div>
+            <div class="zb-sub">${a.aantal} ${a.aantal === 1 ? "thuisbatterij" : "thuisbatterijen"} · ${a.sturen || 0} ${a.sturen === 1 ? "stuurt" : "sturen"} mee</div></div>
+          <span class="zb-chip ${a.aan ? "goed" : ""}">${a.aan ? "Stuurt samen" : "Alleen inzicht"}</span>
+        </div>
+        <div class="held">
+          <div class="accu ${richting} ${p < 15 ? "laag" : ""} ${p < 60 ? "naast" : ""}" style="--vul:${klem(p, 0, 100) / 100}">
+            <div class="romp"><div class="vul"></div><div class="streep"></div>
+              ${richting ? `<div class="pijlen">${[0, 1, 2].map(() => `<ha-icon icon="mdi:chevron-${richting === "laadt" ? "right" : "left"}"></ha-icon>`).join("")}</div>` : ""}
+              <b>${procent(p)}</b></div>
+            <div class="kap"></div>
+          </div>
+          <div class="getal"><b>${kwh(a.opgeslagen_kwh || 0)}</b><small>van ${kwh(a.bruikbaar_kwh || 0)}</small>
+            <span class="zb-chip ${richting ? "goed" : ""}">${richting === "laadt" ? "laadt " + W(w) + " uit de wijk" : richting === "levert" ? "levert " + W(w) + " aan de wijk" : "geen uitwisseling met de wijk"}</span></div>
+        </div>
+        ${this._gedeeld(a)}
+        ${typeof a.week_gedeeld === "number" ? `<div class="zb-voet">Deze week gebruikten buren ${procent(a.week_gedeeld * 100)} van alle teruglevering op hetzelfde moment zelf. Gelijktijdigheid levert iedereen het meeste op.</div>` : ""}
+      </ha-card>`;
+    }
+
+    _gedeeld(a) {
+      if (typeof a.gedeeld_nu_watt !== "number") return "";
+      const W = (v) => (Math.abs(v) >= 1000 ? (Math.abs(v) / 1000).toFixed(1).replace(".", ",") + " kW" : Math.round(Math.abs(v)) + " W");
+      return `<div class="gedeeld"><span>Nu tegelijk gedeeld tussen buren</span><b>${W(a.gedeeld_nu_watt)}</b></div>`;
+    }
+
+    _stijl() {
+      return `
+        .held { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+        .getal b { display: block; font-size: 1.7rem; font-weight: 800; color: var(--primary-text-color); line-height: 1.1; }
+        .getal small { display: block; color: var(--secondary-text-color); margin-bottom: 8px; }
+        .accu { --vul: 0; display: flex; align-items: center; width: 190px; height: 100px; }
+        .romp { position: relative; flex: 1; align-self: stretch; border: 3px solid var(--zb-lijn); border-radius: 18px; background: var(--zb-zacht); overflow: hidden; }
+        .kap { width: 9px; height: 38%; margin-left: -1px; border-radius: 0 6px 6px 0; background: var(--zb-lijn); }
+        .vul { position: absolute; left: 5px; top: 5px; bottom: 5px; width: calc((100% - 10px) * var(--vul)); min-width: 3px; border-radius: 12px;
+               background: linear-gradient(90deg, #047857, #10b981 60%, #6ee7b7); transition: width 1.2s ease; }
+        .accu.laag .vul { background: linear-gradient(90deg, #b45309, #f59e0b); }
+        .streep { position: absolute; inset: 5px; background: repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), var(--zb-lijn) calc(25% - 1px) 25%); }
+        .romp b { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: 1.4rem; font-weight: 800; color: #fff; text-shadow: 0 1px 5px rgba(0,0,0,.35); }
+        .accu.naast .romp b { right: auto; left: calc(5px + (100% - 10px) * var(--vul) + 8px); color: var(--primary-text-color); text-shadow: none; }
+        .pijlen { position: absolute; top: 6px; right: 8px; display: flex; padding: 0 4px; border-radius: 8px; background: var(--ha-card-background, var(--card-background-color, #fff)); color: var(--zb-lucht); }
+        .accu.laadt .pijlen { color: var(--zb-groen); }
+        .pijlen ha-icon { --mdc-icon-size: 16px; margin: 0 -4px; animation: zb-pijl 1.4s linear infinite; opacity: .2; }
+        .accu.laadt .pijlen ha-icon:nth-child(2), .accu.levert .pijlen ha-icon:nth-child(2) { animation-delay: .45s; }
+        .accu.laadt .pijlen ha-icon:nth-child(3), .accu.levert .pijlen ha-icon:nth-child(1) { animation-delay: .9s; }
+        @keyframes zb-pijl { 0% { opacity: .15; } 30% { opacity: .95; } 100% { opacity: .15; } }
+        .gedeeld { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: rgba(5,150,105,.12); font-size: .85rem; color: var(--primary-text-color); }
+        .gedeeld b { font-size: 1.15rem; color: var(--zb-groen); }
+        @media (prefers-reduced-motion: reduce) { .pijlen ha-icon { animation: none; opacity: .8; } }
+      `;
+    }
+  }
+
+  // ------------------------------------------------------------------ De editor voor alle kaarten
+
+  // Een formulier van Home Assistant zelf (ha-form) met het schema van de kaart: de sensor kies je uit een
+  // lijst met alleen de entiteiten van Zonneburen.
+  class ZonneburenKaartEditor extends HTMLElement {
+    setConfig(config) { this._config = { ...(config || {}) }; this._teken(); }
+    set hass(hass) { this._hass = hass; this._teken(); }
+    _teken() {
+      if (!this._hass || !this._config) return;
+      if (!this._form) {
+        this._form = document.createElement("ha-form");
+        this._form.computeLabel = (s) => s.label || s.name;
+        this._form.addEventListener("value-changed", (ev) => {
+          this._config = { ...ev.detail.value };
+          this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true }));
+        });
+        this.appendChild(this._form);
+      }
+      this._form.hass = this._hass;
+      this._form.schema = this.schema || [];
+      this._form.data = this._config;
+    }
+  }
 
   // ------------------------------------------------------------------ Paneel in de zijbalk
 
-  // Het paneel Energieplan dat de integratie registreert: zoekt zelf de sensoren van Zonneburen,
-  // dus de bewoner hoeft niets in te stellen. Eén plan per huis, plus een tegel per apparaat.
+  // Het paneel Energieplan dat de integratie registreert: zoekt zelf de sensoren van Zonneburen, dus de
+  // bewoner hoeft niets in te stellen. Drie tabbladen: je batterij, het schema per kwartier, en de wijk.
   class ZonneburenEnergieplanPanel extends HTMLElement {
     set hass(hass) {
       this._hass = hass;
-      if (!this.shadowRoot) this.attachShadow({ mode: "open" });
-      const plannen = Object.keys(hass.states).filter((id) => id.startsWith("sensor.") && Array.isArray(hass.states[id].attributes.kwartieren));
-      const apparaten = Object.keys(hass.states).filter((id) => id.startsWith("sensor.") && "volgt_plan" in hass.states[id].attributes);
-      const sleutel = plannen.join() + "|" + apparaten.join() + "|" + this.narrow;
-      if (sleutel !== this._sleutel) {
-        this._sleutel = sleutel;
-        this._bouw(plannen, apparaten);
+      if (!this.shadowRoot) {
+        this.attachShadow({ mode: "open" });
+        this.shadowRoot.addEventListener("click", (ev) => {
+          const tab = ev.target.closest("[data-tab]");
+          if (tab) { this._tab = tab.dataset.tab; this._sleutel = null; this.hass = this._hass; }
+        });
       }
-      this.shadowRoot.querySelectorAll("zonneburen-energieplan-card").forEach((k) => { k.hass = hass; });
+      const plannen = Object.keys(hass.states).filter((id) => id.startsWith("sensor.") && SOORT.energieplan(hass.states[id])).sort();
+      const wijk = zoek(hass, "wijk"), bb = zoek(hass, "buurtbatterij");
+      const tab = this._tab || "plan";
+      const sleutel = [plannen.join(), wijk, bb, tab].join("|");
+      if (sleutel !== this._sleutel) { this._sleutel = sleutel; this._bouw(plannen, wijk, bb, tab); }
+      this.shadowRoot.querySelectorAll(".kaarten > *").forEach((k) => { k.hass = hass; });
       const menu = this.shadowRoot.querySelector("ha-menu-button");
       if (menu) { menu.hass = hass; menu.narrow = this.narrow; }
-      this._tegels(apparaten);
     }
 
     set narrow(n) { this._narrow = n; }
     get narrow() { return !!this._narrow; }
 
-    _bouw(plannen, apparaten) {
-      const leeg = !plannen.length
-        ? `<div class="leeg"><b>Nog geen energieplan.</b><br>Zet in de webapp bij Energieplan de stand op Adviseren of Sturen. Het plan komt binnen zodra Home Assistant met Zonneburen verbonden is, en blijft daarna 36 uur staan, ook zonder internet.</div>`
+    _bouw(plannen, wijk, bb, tab) {
+      const kaarten = [];
+      const titel = (id, standaard) => (plannen.length > 1 ? (this._hass.states[id].attributes.friendly_name || standaard).replace(/ Energieplan$/, "") + " · " : "") + standaard;
+      if (tab === "plan") {
+        for (const id of plannen) {
+          kaarten.push(["zonneburen-batterij-card", { entity: id, titel: titel(id, "Je batterij") }, "breed"]);
+          kaarten.push(["zonneburen-energieplan-card", { entity: id, titel: titel(id, "Energieplan"), apparaten: false }, "breed"]);
+          kaarten.push(["zonneburen-apparaten-card", { entity: id, titel: titel(id, "Apparaten in het plan") }, "breed"]);
+        }
+      } else if (tab === "kwartier") {
+        for (const id of plannen) kaarten.push(["zonneburen-kwartier-card", { entity: id, titel: titel(id, "Per kwartier"), max_hoogte: 0 }, "breed"]);
+      } else {
+        if (bb) kaarten.push(["zonneburen-buurtbatterij-card", { entity: bb }, "breed"]);
+        if (wijk) kaarten.push(["zonneburen-card", { entity: wijk, titel: "De wijk" }, "breed"]);
+      }
+      const leeg = !kaarten.length
+        ? `<div class="leeg"><b>Nog niets te zien.</b><br>${tab === "wijk" ? "De wijkgegevens komen binnen zodra Home Assistant met Zonneburen verbonden is." : "Zet in de webapp bij Energieplan de stand op Adviseren of Sturen. Het plan komt dan binnen enkele minuten binnen, en blijft 36 uur staan, ook zonder internet."}</div>`
         : "";
       this.shadowRoot.innerHTML = `
         <div class="balk"><ha-menu-button></ha-menu-button><span>Energieplan</span></div>
-        <div class="inhoud">
-          ${leeg}
-          ${plannen.map((id) => `<zonneburen-energieplan-card data-id="${esc(id)}"></zonneburen-energieplan-card>`).join("")}
-          ${apparaten.length ? `<h2>Apparaten in het plan</h2><div class="tegels"></div>` : ""}
-        </div>
+        <nav class="tabs">
+          ${[["plan", "mdi:battery-clock", "Overzicht"], ["kwartier", "mdi:table-clock", "Per kwartier"], ["wijk", "mdi:home-group", "Wijk"]]
+            .map(([k, i, l]) => `<button data-tab="${k}" class="${tab === k ? "aan" : ""}"><ha-icon icon="${i}"></ha-icon>${l}</button>`).join("")}
+        </nav>
+        <div class="inhoud">${leeg}<div class="kaarten"></div></div>
         <style>
           :host { display: block; min-height: 100vh; background: var(--primary-background-color); color: var(--primary-text-color); }
           .balk { display: flex; align-items: center; gap: 8px; height: var(--header-height, 56px); padding: 0 12px; font-size: 20px;
                   background: var(--app-header-background-color, var(--primary-color)); color: var(--app-header-text-color, #fff); }
-          .inhoud { max-width: 960px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+          .tabs { display: flex; gap: 4px; padding: 0 12px; background: var(--app-header-background-color, var(--primary-color)); overflow-x: auto; }
+          .tabs button { display: inline-flex; align-items: center; gap: 6px; padding: 10px 14px; border: 0; border-bottom: 3px solid transparent; background: none;
+                         color: var(--app-header-text-color, #fff); opacity: .75; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+          .tabs button.aan { opacity: 1; border-bottom-color: var(--app-header-text-color, #fff); }
+          .tabs ha-icon { --mdc-icon-size: 18px; }
+          .inhoud { max-width: 1100px; margin: 0 auto; padding: 16px; }
+          .kaarten { display: grid; gap: 16px; }
           .leeg { padding: 24px; border-radius: 12px; background: var(--card-background-color); line-height: 1.5; }
-          h2 { margin: 8px 0 0; font-size: 1rem; font-weight: 600; }
-          .tegels { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-          .tegel { padding: 14px 16px; border-radius: 12px; background: var(--card-background-color); box-shadow: var(--ha-card-box-shadow, none);
-                   border: 1px solid var(--divider-color); }
-          .tegel b { display: block; margin-bottom: 4px; }
-          .tegel span { color: var(--secondary-text-color); font-size: .9rem; }
-          .tegel.aan { border-color: var(--warning-color, #f59e0b); }
         </style>`;
-      this.shadowRoot.querySelectorAll("zonneburen-energieplan-card").forEach((k) => {
-        const id = k.dataset.id;
-        const naam = (this._hass.states[id].attributes.friendly_name || "Energieplan").replace(/ Energieplan$/, "");
-        k.setConfig({ entity: id, titel: plannen.length > 1 ? naam : "Energieplan", apparaten: true });
-      });
-    }
-
-    _tegels(apparaten) {
-      const vak = this.shadowRoot.querySelector(".tegels");
-      if (!vak) return;
-      const html = apparaten.map((id) => {
-        const st = this._hass.states[id];
-        const naam = (st.attributes.friendly_name || id).replace(/^.*Energieplan /, "");
-        return `<div class="tegel${st.attributes.volgt_plan ? " aan" : ""}"><b>${esc(naam)}</b><span>${esc(st.state)}</span></div>`;
-      }).join("");
-      if (html !== this._tegelHtml) { this._tegelHtml = html; vak.innerHTML = html; }
+      const vak = this.shadowRoot.querySelector(".kaarten");
+      for (const [naam, config] of kaarten) {
+        const el = document.createElement(naam);
+        el.setConfig(config);
+        vak.appendChild(el);
+      }
     }
   }
 
+  customElements.define("zonneburen-energieplan-card", ZonneburenEnergieplanCard);
+  customElements.define("zonneburen-kwartier-card", ZonneburenKwartierCard);
+  customElements.define("zonneburen-batterij-card", ZonneburenBatterijCard);
+  customElements.define("zonneburen-apparaten-card", ZonneburenApparatenCard);
+  customElements.define("zonneburen-buurtbatterij-card", ZonneburenBuurtbatterijCard);
+  customElements.define("zonneburen-kaart-editor", ZonneburenKaartEditor);
   customElements.define("zonneburen-energieplan-panel", ZonneburenEnergieplanPanel);
 
   window.customCards = window.customCards || [];
-  window.customCards.push({
-    type: "zonneburen-card",
-    name: "Zonneburen Card",
-    description: "Live wijkvisualisatie van het Zonneburen P2P-energiesysteem.",
-    preview: true,
-  });
-  window.customCards.push({
-    type: "zonneburen-energieplan-card",
-    name: "Zonneburen Energieplan",
-    description: "Het energieplan van je eigen huis: wat je batterij de komende uren doet en waarom.",
-  });
+  window.customCards.push(
+    { type: "zonneburen-batterij-card", name: "Zonneburen: je batterij nu", description: "Wat je batterij nu doet, de lading, en knoppen om te pauzeren of het plan uit te zetten.", preview: true },
+    { type: "zonneburen-energieplan-card", name: "Zonneburen: energieplan", description: "Het energieplan op een tijdlijn: prijs, lading en wat de batterij doet, met de komende blokken.", preview: true },
+    { type: "zonneburen-kwartier-card", name: "Zonneburen: per kwartier", description: "Het schema van het energieplan per kwartier, zoals in de webapp. Ook goed leesbaar op je telefoon.", preview: true },
+    { type: "zonneburen-apparaten-card", name: "Zonneburen: apparaten in het plan", description: "Wanneer het energieplan je boiler, auto of warmtepomp laat draaien.", preview: true },
+    { type: "zonneburen-buurtbatterij-card", name: "Zonneburen: virtuele buurtbatterij", description: "De thuisbatterijen van de buurt samen, en hoeveel buren nu tegelijk delen.", preview: true },
+    { type: "zonneburen-card", name: "Zonneburen: de wijk", description: "De wijk als een straat met huisjes: wie deelt, wie afneemt en wie wacht.", preview: true },
+  );
 
   console.info(`%c☀️ ZONNEBUREN-CARD %c v${VERSIE}`,
     "background:#FFB233;color:#1b1b1b;font-weight:700;padding:2px 6px;border-radius:3px 0 0 3px",

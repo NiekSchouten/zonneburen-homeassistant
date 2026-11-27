@@ -42,6 +42,10 @@ class EmsUitvoerder:
         self.hub = hub
         self.plan: ems_core.Plan | None = None
         self.ruw: str = ""
+        # Het schema voor de kaarten (protocol.lees_schema): ook bij Adviseren, als er geen plan is om te sturen.
+        self.schema: dict | None = None
+        # De laatste meting (net, batterij, lading), voor de kaart Batterij nu.
+        self.meting: ems_core.Meting | None = None
         self.geweigerd = ""
         self.fout = ""
         self.pauze_tot = 0.0
@@ -161,6 +165,7 @@ class EmsUitvoerder:
     async def _tik(self, net: float | None, bat: float | None, soc: float | None) -> None:
         nu = time.time()
         meting = ems_core.Meting(net, bat, soc, self._leeftijd() if net is not None else 1e9)
+        self.meting = meting
         grenzen = ems_core.Grenzen(
             float(self.opties.get(CONF_EMS_MAX_LAAD_W) or 0), float(self.opties.get(CONF_EMS_MAX_ONTLAAD_W) or 0),
             float(self.opties.get(CONF_EMS_ZEKERING_A) or 0), self.pauze_tot > nu, self.hub.noodstop)
@@ -334,4 +339,7 @@ class EmsUitvoerder:
             uit["geweigerd"] = self.geweigerd
         if self.fout:
             uit["fout"] = self.fout
+        if (m := self.meting) is not None:
+            uit.update({k: round(v, 1) if k == "soc_nu" else round(v) for k, v in
+                        (("soc_nu", m.soc), ("batterij_w", m.bat_w), ("net_w", m.net_w)) if v is not None})
         return uit
