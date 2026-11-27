@@ -57,7 +57,7 @@
 (function () {
   "use strict";
 
-  const VERSIE = "2.0.0";
+  const VERSIE = "2.0.1";
   // De integratie levert dit bestand zelf mee; staat het ook als resource in een dashboard, dan
   // laadt het twee keer. De eerste wint.
   if (customElements.get("zonneburen-card")) return;
@@ -675,17 +675,38 @@
   };
   const klem = (v, a, b) => Math.min(b, Math.max(a, v));
 
-  // De sensoren van de integratie dragen een attribuut "zonneburen" met hun soort. Oudere versies niet:
-  // dan herkennen we ze aan hun attributen.
-  const SOORT = {
-    energieplan: (s) => s.attributes.zonneburen === "energieplan" || Array.isArray(s.attributes.kwartieren),
-    wijk: (s) => s.attributes.zonneburen === "wijk" || Array.isArray(s.attributes.huizen),
-    buurtbatterij: (s) => s.attributes.zonneburen === "buurtbatterij",
+  // Alleen sensoren van de integratie Zonneburen zelf. Een eigen sensor met toevallig dezelfde attributen
+  // (bijvoorbeeld een plan van EMHASS met "kwartieren") mag geen kaart krijgen. Het entiteitenregister zegt
+  // van welke integratie een sensor is; true, false, of null als dat onbekend is.
+  const vanZonneburen = (hass, id) => {
+    const e = hass && hass.entities && hass.entities[id];
+    return e ? e.platform === "zonneburen" : null;
   };
+  // Sinds 0.7 dragen de sensoren een attribuut "zonneburen" met hun soort; oudere versies herkennen we aan
+  // hun attributen, maar alleen als het register zegt dat ze van Zonneburen zijn.
+  const SOORT_OUD = {
+    energieplan: (s) => Array.isArray(s.attributes.kwartieren),
+    wijk: (s) => Array.isArray(s.attributes.huizen),
+    buurtbatterij: () => false,
+  };
+  const isSoort = (hass, id, soort) => {
+    const s = hass && hass.states && hass.states[id];
+    if (!s || !id.startsWith("sensor.") || !SOORT_OUD[soort]) return false;
+    const eigen = vanZonneburen(hass, id);
+    // De wijk-sensor van de server via MQTT Discovery hoort er ook bij.
+    if (eigen === false) return soort === "wijk" && id === "sensor.zonneburen_wijk";
+    if (s.attributes.zonneburen) return s.attributes.zonneburen === soort;
+    return eigen === true && SOORT_OUD[soort](s);
+  };
+  const SOORT = Object.fromEntries(Object.keys(SOORT_OUD).map((k) => [k, k]));
   const zoek = (hass, soort) => {
     if (!hass || !hass.states || !SOORT[soort]) return undefined;
-    return Object.keys(hass.states).filter((id) => id.startsWith("sensor.")).sort().find((id) => SOORT[soort](hass.states[id]));
+    const ids = Object.keys(hass.states).filter((id) => isSoort(hass, id, soort)).sort();
+    // Een sensor van de integratie gaat voor de wijk-sensor via MQTT.
+    return ids.find((id) => vanZonneburen(hass, id) !== false) || ids[0];
   };
+  const isApparaatPlan = (hass, id) =>
+    id.startsWith("sensor.") && "volgt_plan" in (hass.states[id].attributes || {}) && vanZonneburen(hass, id) !== false;
   // Een andere entiteit van hetzelfde huis: via het apparaat in de registry, anders op naam.
   const broer = (hass, id, sleutel, domein) => {
     if (!hass || !id) return undefined;
@@ -1167,7 +1188,7 @@
       ];
     }
     _extraSleutel(hass) {
-      return Object.keys(hass.states).filter((id) => "volgt_plan" in (hass.states[id].attributes || {})).map((id) => hass.states[id].last_updated).join();
+      return Object.keys(hass.states).filter((id) => isApparaatPlan(hass, id)).map((id) => hass.states[id].last_updated).join();
     }
     _klik(ev) {
       const regel = ev.target.closest("[data-id]");
@@ -1176,7 +1197,7 @@
 
     _inhoud(st, hass) {
       const nu = Date.now() / 1000;
-      const ids = Object.keys(hass.states).filter((id) => id.startsWith("sensor.") && "volgt_plan" in (hass.states[id].attributes || {})).sort();
+      const ids = Object.keys(hass.states).filter((id) => isApparaatPlan(hass, id)).sort();
       const t0 = nu, t1 = nu + 86400;
       const pct = (t) => klem((t - t0) / (t1 - t0) * 100, 0, 100);
       // Op hele uren: elke zes uur vanaf het eerstvolgende zesvoud.
@@ -1338,7 +1359,7 @@
           if (tab) { this._tab = tab.dataset.tab; this._sleutel = null; this.hass = this._hass; }
         });
       }
-      const plannen = Object.keys(hass.states).filter((id) => id.startsWith("sensor.") && SOORT.energieplan(hass.states[id])).sort();
+      const plannen = Object.keys(hass.states).filter((id) => isSoort(hass, id, "energieplan")).sort();
       const wijk = zoek(hass, "wijk"), bb = zoek(hass, "buurtbatterij");
       const tab = this._tab || "plan";
       const sleutel = [plannen.join(), wijk, bb, tab].join("|");
