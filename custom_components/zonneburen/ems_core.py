@@ -52,6 +52,9 @@ class Plan:
     verwacht: dict = field(default_factory=dict)
     # Wat een beheerd apparaat buiten zijn blokken doet: index -> "uit" of "normaal".
     rust: dict[int, str] = field(default_factory=dict)
+    # Wat het plan over elk gekoppeld apparaat weet: soort ("wp", "boiler", "witgoed" ...), of hij uit mag,
+    # hoe lang een programma duurt en de temperatuurgrenzen.
+    soorten: dict[int, dict] = field(default_factory=dict)
 
     def index(self, nu: float) -> int:
         if nu < self.t0:
@@ -146,13 +149,19 @@ def lees_plan(bericht: dict) -> tuple[Plan | None, str | None]:
             return None, f"apparaatblok {i}: temperatuur buiten 5-80 graden"
         if int(_getal(last.get("tot"), 0)) <= int(_getal(last.get("van"), 0)):
             return None, f"apparaatblok {i}: eindigt niet na het begin"
-    rust = {}
+    rust, soorten = {}, {}
     for regel in bericht.get("apparaten") or []:
-        if isinstance(regel, dict) and isinstance(regel.get("i"), int) and regel.get("rust") in ("uit", "normaal"):
+        if not isinstance(regel, dict) or not isinstance(regel.get("i"), int) or isinstance(regel.get("i"), bool):
+            continue
+        if regel.get("rust") in ("uit", "normaal"):
             rust[regel["i"]] = regel["rust"]
+        soort = {k: regel[k] for k in ("soort", "magUit", "duurMin", "omhoog", "omlaag", "minTemp", "maxTemp", "opwarmen", "klaarOp")
+                 if k in regel and isinstance(regel[k], (str, bool, int, float))}
+        if soort:
+            soorten[regel["i"]] = soort
     return Plan(str(bericht.get("planId", ""))[:40], gemaakt, geldig_tot, t0, 900, kwartieren, soc_min, soc_max,
                 max_laad, max_ontlaad, _getal(grenzen.get("importMaxW"), 0), _getal(grenzen.get("exportMaxW"), 0),
-                lasten, bericht.get("verwacht") if isinstance(bericht.get("verwacht"), dict) else {}, rust), None
+                lasten, bericht.get("verwacht") if isinstance(bericht.get("verwacht"), dict) else {}, rust, soorten), None
 
 
 @dataclass

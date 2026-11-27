@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.0
+
+**Herstart nodig:** ja. Er zijn nieuwe entiteiten: per wasmachine, vaatwasser of droger *slim starten*,
+*nu starten* en *klaar om*.
+
+### Apparaten veilig sturen
+- Warmtepompen, airco's en elektrische verwarming gaan nooit meer uit. Zonneburen verschuift alleen hun
+  temperatuur, binnen comfortgrenzen, en verandert `hvac_mode` nooit.
+- Boilers gaan nooit uit. Zonneburen verhoogt alleen de temperatuur, nooit onder je eigen temperatuur.
+- Zet je de temperatuur zelf anders, dan wordt dat de nieuwe basis en wacht Zonneburen vier uur.
+- Cloud-integraties krijgen hooguit één schrijfactie per half uur per entiteit. De sturing stopt als er
+  vandaag minder dan 30 aanroepen over zijn.
+- Witgoed op een stekker:
+  - De stekker gaat nooit uit terwijl het apparaat draait.
+  - Met *slim starten* en *klaar om* draait het programma één keer, op het beste moment voor je eindtijd.
+  - Het programma loopt in één keer door tot het klaar is, en daarna blijft de stekker aan.
+- Na *terug naar slim regelen* verandert er pas iets bij het volgende blok in het plan.
+- Bij stoppen, verwijderen of herladen gaat alles terug naar je eigen stand. Hetzelfde gebeurt als de
+  verbinding langer dan 10 minuten weg is.
+- Elk gekoppeld apparaat heeft meteen zijn plan-sensor, ook voordat er een plan is.
+
 ## 0.9.0
 
 **Herstart nodig:** ja. Er zijn nieuwe instellingen en de configuratie wordt omgezet.

@@ -159,6 +159,27 @@ de auto, de boiler, de warmtepomp, een airco, elektrische verwarming, witgoed en
 3. Zet de webapp op **Sturen** en vink in Home Assistant **Energieplan uitvoeren** aan. Een
    batterij-entiteit is hiervoor niet nodig.
 
+**Veilig, voor elk merk.** Wat de integratie met een apparaat doet, volgt uit wat het kan, niet uit de merknaam:
+
+- **Warmtepomp, airco, elektrische verwarming (`climate`).** Die gaan nooit uit. Zonneburen verschuift alleen
+  de gewenste temperatuur: voorverwarmen +1 °C, zuiniger −0,5 °C (hooguit twee uur achter elkaar), binnen
+  19–22 °C. `hvac_mode` blijft altijd zoals hij is. Uit mag alleen als je in de webapp *Aan en uit* kiest.
+- **Boiler (`water_heater`).** Die gaat nooit uit en wordt nooit kouder dan je eigen temperatuur. Bij goedkope
+  stroom of eigen zon warmt hij op tot 50 °C (60 °C voor legionella). Is het water al bijna zo warm, dan
+  stookt hij niet extra.
+- **Zelf veranderd?** Pas je de temperatuur zelf aan (op de thermostaat of in de app), dan wordt dat je nieuwe
+  basis en laat Zonneburen het apparaat vier uur met rust.
+- **Cloud-integraties.** Hooguit één schrijfactie per half uur per entiteit, en alleen bij een echte verandering.
+  Meldt de integratie dat er vandaag minder dan 30 aanroepen over zijn, dan stopt de sturing tot morgen.
+- **Wasmachine, vaatwasser, droger op een stekker.** De stekker gaat nooit uit terwijl het apparaat draait.
+  Zet je programma klaar, druk op start en dan op **slim starten**. De stekker gaat uit tot het beste moment
+  voor je eindtijd (**klaar om**). Dat moment is eerst je eigen zon, dan stroom over in de wijk, dan het
+  goedkoopste tarief. Daarna loopt het programma in één keer door tot het klaar is, en blijft de stekker aan.
+  Controleer of je machine na een stroomonderbreking verdergaat met het programma.
+- **Terug naar slim regelen** zet niets meteen om: pas bij het volgende blok in het plan.
+- **Stoppen, verwijderen, herladen, of meer dan 10 minuten geen verbinding.** Dan gaat alles terug naar
+  je eigen temperatuur, en wat je verwijdert terug naar de stand van voor Zonneburen.
+
 Bij een thermostaat of boiler zet het plan de temperatuur even hoger of lager; daarna gaat hij terug
 naar de normale temperatuur uit Apparaten. Wat je zelf op *Handmatig* zet en de noodstop gaan altijd
 voor. Bij een pauze of zonder geldig plan doen de apparaten weer wat ze normaal doen.

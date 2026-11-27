@@ -15,7 +15,7 @@ from . import herkennen
 from .const import CONF_EMS_PROFIEL, CONF_EMS_VERMOGEN, DOMAIN, PROFIEL_DEYE, PROFIEL_VERMOGEN
 from .hub import ZonneburenHub
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.DATETIME, Platform.SENSOR, Platform.SWITCH]
 
 type ZonneburenConfigEntry = ConfigEntry[ZonneburenHub]
 

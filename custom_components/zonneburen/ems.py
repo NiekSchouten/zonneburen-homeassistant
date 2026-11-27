@@ -33,6 +33,7 @@ DREMPEL_W = 50
 VERVERS_S = 30
 STATUS_S = 15 * 60
 TRAAG_S = 20
+VERBINDING_WEG_S = 600
 HERSTART_S = 60
 
 # Integraties die zelf een batterij plannen: twee regelaars werken elkaar tegen.
@@ -88,7 +89,23 @@ class EmsUitvoerder:
         nu = time.time()
         if not (self.opties.get(CONF_EMS_AAN) and self.opties.get(CONF_BEDIENING, True)) or self.pauze_tot > nu:
             return ems_core.ApparaatStand(None)
+        # Langer dan tien minuten geen verbinding met de server: apparaten terug naar hun eigen stand.
+        if not self.hub.verbinding.verbonden:
+            self._weg_sinds = self._weg_sinds or nu
+            if nu - self._weg_sinds > VERBINDING_WEG_S:
+                return ems_core.ApparaatStand(None)
+        else:
+            self._weg_sinds = None
         return ems_core.apparaat_stand(self.plan, index, nu, self.vorig_plan)
+
+    def soort(self, index: int) -> dict:
+        """Wat het plan over dit apparaat weet: soort, of hij uit mag, de duur van een programma."""
+        for p in (self.plan, self.vorig_plan):
+            if p is not None and index in p.soorten:
+                return p.soorten[index]
+        return {}
+
+    _weg_sinds: float | None = None
 
     def niveau(self) -> str:
         if not self.mag_sturen():

@@ -36,11 +36,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZonneburenConfigEntry, v
 
 
 def apparaten_in_plan(hub) -> set[int]:
+    # Ook zonder plan (net opgestart): elk gekoppeld apparaat krijgt zijn sensor, anders staat hij op "niet beschikbaar".
+    gekoppeld = {i for i, a in enumerate(hub._apparaten()) if a["enabled"] and a["host"] and not str(a["host"]).startswith("light.")
+                 and a.get("role") != protocol.ROL_LICHT}
     plan = hub.ems.plan
     if not plan:
-        return set()
+        return gekoppeld
     indexen = {l["apparaat"] for l in plan.lasten if isinstance(l.get("apparaat"), int) and not isinstance(l.get("apparaat"), bool)}
-    return {i for i in indexen | set(plan.rust) if 0 <= i < protocol.MAX_APPARATEN}
+    return {i for i in indexen | set(plan.rust) | set(plan.soorten) | gekoppeld if 0 <= i < protocol.MAX_APPARATEN}
 
 
 def namen(hub) -> dict[int, str]:
