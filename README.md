@@ -118,6 +118,19 @@ een minuut niets meldt, zet de integratie het vermogen op 0 en de batterij terug
 Een plan dat niet door de controle komt, wordt geweigerd; het vorige blijft dan gelden. Draait er ook
 EMHASS, evcc of een ander energiebeheer, dan krijg je een melding: twee regelaars werken elkaar tegen.
 
+**Deye of Sunsynk.** Zo'n omvormer kent geen vermogen in W om op te sturen, wel zes tijdprogramma's
+(Time of Use, bijvoorbeeld via de Solarman-integratie). Herkent Home Assistant ze, dan kies je bij
+*Thuisbatterij laten sturen* het profiel **Deye / Sunsynk: tijdprogramma's**. Zonneburen zet de zes
+programma's op 00:00, 04:00 ... 20:00 en geeft ze elk kwartier dezelfde opdracht: van het net laden tot
+een lading (met de laadstroom uit het plan en de accuspanning), de lading vasthouden, of zelfverbruik tot
+de ondergrens. Het schrijft alleen wat afwijkt, hooguit één keer per minuut. Ontladen met een vast vermogen
+kan een Deye zo niet; dat plant de webapp dan ook niet. Lukt het schrijven drie keer op rij niet, dan zie je
+een melding bij **Instellingen → Reparaties**.
+
+**Terugkoppeling.** De sensor Energieplan laat zien wat het plan vraagt (`gevraagd_vermogen_w`), wat er is
+toegepast (`toegepaste_stand`), waarom het eventueel minder is (`beperking`) en, bij een Deye, de laatste
+opdracht aan de omvormer (`laatste_opdracht`).
+
 ## 4. Apparaten in het energieplan (optioneel, ook zonder batterij)
 
 Vanaf 0.4.0 zet het energieplan ook je apparaten op het goedkoopste moment of op je eigen zon aan:

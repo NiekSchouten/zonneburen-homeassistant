@@ -19,7 +19,9 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.util import dt as dt_util
 
 from . import ems_core
+from .deye import DeyeSturing
 from .const import (
+    CONF_EMS_PROFIEL, CONF_TOU, PROFIEL_DEYE,
     CONF_BEDIENING, CONF_EMS_AAN, CONF_EMS_LADEN_POSITIEF, CONF_EMS_MAX_LAAD_W, CONF_EMS_MAX_ONTLAAD_W, CONF_EMS_MODUS,
     CONF_EMS_MODUS_STUREN, CONF_EMS_MODUS_TERUG, CONF_EMS_NETDOEL, CONF_EMS_ONTLAAD, CONF_EMS_RICHTING, CONF_EMS_RICHTING_LADEN,
     CONF_EMS_RICHTING_ONTLADEN, CONF_EMS_RICHTING_STOP, CONF_EMS_VERMOGEN, CONF_EMS_ZEKERING_A, CONF_NET, DOMAIN,
@@ -41,6 +43,9 @@ class EmsUitvoerder:
     def __init__(self, hub) -> None:
         self.hub = hub
         self.plan: ems_core.Plan | None = None
+        # Het plan hiervoor: een nieuw plan begint pas bij het volgende kwartier, tot dan geldt dit.
+        self.vorig_plan: ems_core.Plan | None = None
+        self.deye = DeyeSturing(self)
         self.ruw: str = ""
         # Het schema voor de kaarten (protocol.lees_schema): ook bij Adviseren, als er geen plan is om te sturen.
         self.schema: dict | None = None
@@ -68,8 +73,13 @@ class EmsUitvoerder:
     def opties(self) -> dict:
         return self.hub.opties
 
+    def is_deye(self) -> bool:
+        return self.opties.get(CONF_EMS_PROFIEL) == PROFIEL_DEYE
+
     def mag_sturen(self) -> bool:
-        return bool(self.opties.get(CONF_EMS_AAN) and self.opties.get(CONF_BEDIENING, True) and self.opties.get(CONF_EMS_VERMOGEN))
+        if not (self.opties.get(CONF_EMS_AAN) and self.opties.get(CONF_BEDIENING, True)):
+            return False
+        return self.deye.klaar() if self.is_deye() else bool(self.opties.get(CONF_EMS_VERMOGEN))
 
     def apparaat(self, index: int) -> ems_core.ApparaatStand:
         """Wat het plan nu van een apparaat vraagt. Niets als uitvoeren uit staat of het plan gepauzeerd is.
@@ -78,12 +88,13 @@ class EmsUitvoerder:
         nu = time.time()
         if not (self.opties.get(CONF_EMS_AAN) and self.opties.get(CONF_BEDIENING, True)) or self.pauze_tot > nu:
             return ems_core.ApparaatStand(None)
-        return ems_core.apparaat_stand(self.plan, index, nu)
+        return ems_core.apparaat_stand(self.plan, index, nu, self.vorig_plan)
 
     def niveau(self) -> str:
         if not self.mag_sturen():
             return "D"
-        return "B" if self._traag() else "A"
+        # Tijdprogramma's volgen het plan per kwartier, niet op de seconde.
+        return "B" if self.is_deye() or self._traag() else "A"
 
     def _traag(self) -> bool:
         staat = self.hub.hass.states.get(self.opties.get(CONF_NET) or "")
@@ -93,6 +104,22 @@ class EmsUitvoerder:
         return (dt_util.utcnow() - laatst).total_seconds() > TRAAG_S
 
     def vermogens(self) -> dict:
+        if self.is_deye():
+            # Een Deye kan laden van het net, de lading vasthouden en zelfverbruik, maar niet met een vast vermogen
+            # naar het net ontladen. Dat zeggen we de server: dan plant hij dat ook niet.
+            standen = [s for s in ems_core.STANDEN if s != ems_core.NETONTLADEN]
+            bericht = {"v": 1, "uitvoerder": "homeassistant", "adapter": self.opties.get(CONF_TOU) or "deye_tou",
+                       "niveau": self.niveau(), "standen": standen if self.mag_sturen() else [], "reactieMs": 60000,
+                       "profiel": PROFIEL_DEYE, "kanVastOntladen": False}
+            if not self.deye.klaar():
+                bericht["fout"] = "kies in de integratie de tijdprogramma's van je omvormer"
+            elif not self.opties.get(CONF_BEDIENING, True):
+                bericht["fout"] = "bediening op afstand staat uit in Home Assistant"
+            elif not self.opties.get(CONF_EMS_AAN):
+                bericht["fout"] = "energieplan uitvoeren staat uit in Home Assistant"
+            elif self.fout:
+                bericht["fout"] = self.fout
+            return bericht
         bericht = {"v": 1, "uitvoerder": "homeassistant", "adapter": self.opties.get(CONF_EMS_VERMOGEN) or "",
                    "niveau": self.niveau(), "standen": list(ems_core.STANDEN) if self.mag_sturen() else [],
                    "reactieMs": 5000}
@@ -109,6 +136,15 @@ class EmsUitvoerder:
             bericht["fout"] = self.fout
         return bericht
 
+    def _beperking(self) -> str:
+        if self.pauze_tot > time.time():
+            return "pauze"
+        if not self.hub.verbinding.verbonden:
+            return "geen verbinding"
+        if self.is_deye() and self.deye.wens and self.deye.wens.beperking:
+            return self.deye.wens.beperking.replace("_", " ")
+        return self.laatste.afwijking if self.laatste and self.laatste.afwijking else ""
+
     # ------------------------------------------------------------------ Plan
 
     def ontvang(self, payload: bytes) -> None:
@@ -116,7 +152,7 @@ class EmsUitvoerder:
         if not tekst:
             if self.plan:
                 self.hub._log(0, "Energieplan uitgezet in de webapp")
-            self.plan, self.ruw, self.geweigerd = None, "", ""
+            self.plan, self.vorig_plan, self.ruw, self.geweigerd = None, None, "", ""
             self._status_klaar = True
             return
         try:
@@ -129,6 +165,8 @@ class EmsUitvoerder:
                 self.geweigerd = fout
                 self.hub._log(2, f"Energieplan geweigerd: {fout}")
             else:
+                if self.plan is not None and self.plan.plan_id != plan.plan_id:
+                    self.vorig_plan = self.plan
                 self.plan, self.ruw, self.geweigerd = plan, tekst, ""
         self._status_klaar = True
         self.hub._bijgewerkt()
@@ -169,7 +207,10 @@ class EmsUitvoerder:
         grenzen = ems_core.Grenzen(
             float(self.opties.get(CONF_EMS_MAX_LAAD_W) or 0), float(self.opties.get(CONF_EMS_MAX_ONTLAAD_W) or 0),
             float(self.opties.get(CONF_EMS_ZEKERING_A) or 0), self.pauze_tot > nu, self.hub.noodstop)
-        opdracht = ems_core.regel(self.plan, nu, meting, grenzen, self._vorig_bat, self._traag())
+        if self.is_deye():
+            await self._tik_deye(nu, meting, grenzen)
+            return
+        opdracht = ems_core.regel(self.plan, nu, meting, grenzen, self._vorig_bat, self._traag(), self.vorig_plan)
 
         sturen = self.mag_sturen() and (
             opdracht.bron == ems_core.PLAN or (opdracht.bron == ems_core.GRENS and opdracht.slot >= 0 and meting.leeftijd_s < 60))
@@ -193,6 +234,42 @@ class EmsUitvoerder:
                 or nu - self._status_op > STATUS_S):
             self._status_klaar = True
         if self._status_klaar:
+            self.hub._bijgewerkt()
+            self._stuur_status(opdracht, meting)
+
+    async def _tik_deye(self, nu: float, meting: ems_core.Meting, grenzen: ems_core.Grenzen) -> None:
+        """Een Deye via zijn tijdprogramma's: geen bijregelen op de seconde, wel elk kwartier de goede opdracht."""
+        wens = ems_core.deye_wens(self.plan, self.vorig_plan, nu, meting.soc, self.deye.spanning(), grenzen,
+                                  self.deye.max_pct(), self.deye.min_pct(), self.deye.max_stroom(), meting.max_fase_a)
+        if self.mag_sturen():
+            self._controleer_andere_ems()
+            if not self.gestart:
+                self.gestart, self.fout = True, ""
+                self.hub._log(1, "Energieplan stuurt nu de tijdprogramma's van je omvormer")
+                self.hub._stuur_vermogens()
+            vorige = self.deye.wens
+            await self.deye.zet(wens, forceer=vorige is None or vorige.stand != wens.stand)
+            if vorige is not None and vorige.stand != wens.stand:
+                self.hub._log(0, f"Batterij: {ems_core.ZINNEN.get(wens.stand, wens.stand).lower()}"
+                                 + (f" ({wens.beperking.replace('_', ' ')})" if wens.beperking else ""))
+        elif self.gestart:
+            # Netjes achterlaten: niet van het net laden, alleen de ondergrens. Dan doet hij zijn eigen zelfverbruik.
+            await self.deye.zet(ems_core.DeyeWens(False, self.deye.min_pct(), None, ems_core.ZELFVERBRUIK, ems_core.TERUGVAL, "uit"),
+                                forceer=True)
+            self.gestart = False
+            self.hub._log(0, "Energieplan: tijdprogramma's terug op zelfverbruik")
+
+        if self.hub.verbinding.verbonden and json.dumps(self.vermogens(), sort_keys=True) != self._vermogens_gemeld:
+            self.hub._stuur_vermogens()
+        opdracht = ems_core.Opdracht(wens.stand, wens.bron if self.gestart else ems_core.TERUGVAL, wens.gevraagd_w, 0, wens.slot,
+                                     wens.beperking.replace("_", " "))
+        vorige_opdracht = self.laatste
+        self.laatste = opdracht
+        if (vorige_opdracht is None or vorige_opdracht.stand != opdracht.stand or vorige_opdracht.slot != opdracht.slot
+                or nu - self._status_op > STATUS_S):
+            self._status_klaar = True
+        if self._status_klaar:
+            self.hub._bijgewerkt()
             self._stuur_status(opdracht, meting)
 
     async def _dienst(self, domein: str, dienst: str, data: dict) -> bool:
@@ -339,6 +416,14 @@ class EmsUitvoerder:
             uit["geweigerd"] = self.geweigerd
         if self.fout:
             uit["fout"] = self.fout
+        # Terugkoppeling: wat het plan vraagt, wat er echt is gezet, en waarom het eventueel minder is.
+        if self.laatste is not None:
+            uit["gevraagd_vermogen_w"] = round(self.laatste.bat_w)
+            uit["toegepaste_stand"] = self.laatste.stand if self.gestart else "eigen stand"
+            if beperking := self._beperking():
+                uit["beperking"] = beperking
+        if self.is_deye() and self.deye.laatste_opdracht:
+            uit["laatste_opdracht"] = self.deye.laatste_opdracht
         if (m := self.meting) is not None:
             uit.update({k: round(v, 1) if k == "soc_nu" else round(v) for k, v in
                         (("soc_nu", m.soc), ("batterij_w", m.bat_w), ("net_w", m.net_w)) if v is not None})

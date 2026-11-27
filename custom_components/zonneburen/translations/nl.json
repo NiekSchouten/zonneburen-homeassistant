@@ -52,7 +52,8 @@
         "title": "Stap 4: thuisbatterij",
         "description": "{uitleg}\n\nZet je batterij aan, dan laadt hij als stroom goedkoop is en ontlaadt hij als stroom duur is, volgens het energieplan uit de webapp. Zet daarvoor in de webapp bij **Energieplan** de stand op **Sturen**. Je kunt dit altijd weer uitzetten met de schakelaar *Energieplan uitvoeren*.",
         "data": {
-          "ems_aan": "Ja, laat Zonneburen mijn batterij sturen"
+          "ems_aan": "Ja, laat Zonneburen mijn batterij sturen",
+          "ems_profiel": "Hoe wordt je batterij gestuurd?"
         },
         "sections": {
           "details": {
@@ -80,6 +81,9 @@
               "ems_zekering_a": "In ampère. De batterij laadt minder hard zodra een fase in de buurt van deze waarde komt."
             }
           }
+        },
+        "data_description": {
+          "ems_profiel": "Met een vermogen in W (de meeste batterijen), of met de tijdprogramma's van een Deye of Sunsynk."
         }
       },
       "standen": {
@@ -95,6 +99,30 @@
         "data_description": {
           "ems_modus_terug": "De stand waarin de batterij zichzelf weer regelt."
         }
+      },
+      "deye": {
+        "title": "Deye / Sunsynk: tijdprogramma's",
+        "description": "Zonneburen zet de zes tijdprogramma's van je omvormer op 00:00, 04:00, 08:00, 12:00, 16:00 en 20:00 en geeft ze elk kwartier dezelfde opdracht: **van het net laden** tot een lading, **de lading vasthouden**, of **zelfverbruik** tot de ondergrens. Ontladen met een vast vermogen kan een Deye zo niet; dat plant de webapp dan ook niet.\n\nGevonden:\n{gevonden}",
+        "data": {
+          "ems_tou": "Time of Use (aan/uit)",
+          "ems_tou_laden": "Laden per programma (Grid / Disabled)",
+          "ems_tou_soc": "Lading per programma (%)",
+          "ems_tou_tijd": "Tijd per programma (optioneel)",
+          "ems_tou_stroom": "Laadstroom van het net (A)",
+          "ems_tou_spanning": "Accuspanning (V)",
+          "ems_tou_min_soc": "Ondergrens van de omvormer (optioneel)",
+          "ems_tou_max_pct": "Netladen hooguit tot",
+          "ems_tou_min_pct": "Ondergrens als de omvormer er geen meldt",
+          "ems_zekering_a": "Hoofdzekering (optioneel)"
+        },
+        "data_description": {
+          "ems_tou_laden": "De zes keuzes Program 1-6 Charging. Bij laden zet Zonneburen ze op Grid, anders op Disabled.",
+          "ems_tou_soc": "De zes getallen Program 1-6 SOC: het doel bij laden, de ondergrens bij vasthouden of zelfverbruik.",
+          "ems_tou_stroom": "Uit het vermogen van het plan en de accuspanning rekent Zonneburen de laadstroom uit.",
+          "ems_tou_max_pct": "Hoe vol de batterij van het net hooguit mag worden. Standaard 90 %.",
+          "ems_tou_min_pct": "Wordt gebruikt als er geen ondergrens van de omvormer is gekozen. Standaard 20 %.",
+          "ems_zekering_a": "Komt een fase in de buurt van de zekering, dan laadt de batterij minder hard."
+        }
       }
     },
     "error": {
@@ -103,7 +131,8 @@
       "te_vaak": "Te veel pogingen. Probeer het over een kwartier opnieuw.",
       "niet_bereikbaar": "De webapp is niet bereikbaar. Controleer het adres en je internetverbinding.",
       "geen_https": "Het adres moet met https:// beginnen.",
-      "geen_vermogen": "Kies onder Details het getal waarmee je batterij wordt gestuurd."
+      "geen_vermogen": "Kies onder Details het getal waarmee je batterij wordt gestuurd.",
+      "geen_programmas": "Kies minstens de keuzes voor laden en de getallen voor de lading van de programma's."
     },
     "abort": {
       "already_configured": "Dit huis is al gekoppeld."
@@ -159,7 +188,8 @@
         "title": "Thuisbatterij",
         "description": "{uitleg}\n\nZet je batterij aan, dan laadt hij als stroom goedkoop is en ontlaadt hij als stroom duur is, volgens het energieplan uit de webapp. Zet daarvoor in de webapp bij **Energieplan** de stand op **Sturen**. Je kunt dit altijd weer uitzetten met de schakelaar *Energieplan uitvoeren*.",
         "data": {
-          "ems_aan": "Ja, laat Zonneburen mijn batterij sturen"
+          "ems_aan": "Ja, laat Zonneburen mijn batterij sturen",
+          "ems_profiel": "Hoe wordt je batterij gestuurd?"
         },
         "sections": {
           "details": {
@@ -187,6 +217,9 @@
               "ems_zekering_a": "In ampère. De batterij laadt minder hard zodra een fase in de buurt van deze waarde komt."
             }
           }
+        },
+        "data_description": {
+          "ems_profiel": "Met een vermogen in W (de meeste batterijen), of met de tijdprogramma's van een Deye of Sunsynk."
         }
       },
       "standen": {
@@ -202,10 +235,35 @@
         "data_description": {
           "ems_modus_terug": "De stand waarin de batterij zichzelf weer regelt."
         }
+      },
+      "deye": {
+        "title": "Deye / Sunsynk: tijdprogramma's",
+        "description": "Zonneburen zet de zes tijdprogramma's van je omvormer op 00:00, 04:00, 08:00, 12:00, 16:00 en 20:00 en geeft ze elk kwartier dezelfde opdracht: **van het net laden** tot een lading, **de lading vasthouden**, of **zelfverbruik** tot de ondergrens. Ontladen met een vast vermogen kan een Deye zo niet; dat plant de webapp dan ook niet.\n\nGevonden:\n{gevonden}",
+        "data": {
+          "ems_tou": "Time of Use (aan/uit)",
+          "ems_tou_laden": "Laden per programma (Grid / Disabled)",
+          "ems_tou_soc": "Lading per programma (%)",
+          "ems_tou_tijd": "Tijd per programma (optioneel)",
+          "ems_tou_stroom": "Laadstroom van het net (A)",
+          "ems_tou_spanning": "Accuspanning (V)",
+          "ems_tou_min_soc": "Ondergrens van de omvormer (optioneel)",
+          "ems_tou_max_pct": "Netladen hooguit tot",
+          "ems_tou_min_pct": "Ondergrens als de omvormer er geen meldt",
+          "ems_zekering_a": "Hoofdzekering (optioneel)"
+        },
+        "data_description": {
+          "ems_tou_laden": "De zes keuzes Program 1-6 Charging. Bij laden zet Zonneburen ze op Grid, anders op Disabled.",
+          "ems_tou_soc": "De zes getallen Program 1-6 SOC: het doel bij laden, de ondergrens bij vasthouden of zelfverbruik.",
+          "ems_tou_stroom": "Uit het vermogen van het plan en de accuspanning rekent Zonneburen de laadstroom uit.",
+          "ems_tou_max_pct": "Hoe vol de batterij van het net hooguit mag worden. Standaard 90 %.",
+          "ems_tou_min_pct": "Wordt gebruikt als er geen ondergrens van de omvormer is gekozen. Standaard 20 %.",
+          "ems_zekering_a": "Komt een fase in de buurt van de zekering, dan laadt de batterij minder hard."
+        }
       }
     },
     "error": {
-      "geen_vermogen": "Kies onder Details het getal waarmee je batterij wordt gestuurd."
+      "geen_vermogen": "Kies onder Details het getal waarmee je batterij wordt gestuurd.",
+      "geen_programmas": "Kies minstens de keuzes voor laden en de getallen voor de lading van de programma's."
     },
     "abort": {
       "geen_apparaten": "Geen nieuwe apparaten gevonden. Je kunt ook zelf apparaten toevoegen in de webapp bij Apparaten."
@@ -255,6 +313,20 @@
       "energieplan_hervat": {
         "name": "Energieplan hervatten"
       }
+    }
+  },
+  "selector": {
+    "profiel": {
+      "options": {
+        "vermogen": "Met een vermogen in W",
+        "deye_tou": "Deye / Sunsynk: tijdprogramma's (Time of Use)"
+      }
+    }
+  },
+  "issues": {
+    "deye_schrijven": {
+      "title": "Zonneburen kan de tijdprogramma's van je omvormer niet zetten",
+      "description": "Drie keer op rij lukte het niet om de tijdprogramma's van je Deye of Sunsynk te zetten. De laatste fout: {fout}\n\nControleer of de omvormer bereikbaar is (de Solarman-integratie) en of de gekozen entiteiten nog bestaan, bij Zonneburen → Configureren → Thuisbatterij. Deze melding verdwijnt vanzelf zodra het weer lukt."
     }
   }
 }

@@ -17,6 +17,8 @@ PLAN, TERUGVAL, GEBRUIKER, NOODSTOP, GRENS = "plan", "terugval", "gebruiker", "n
 MAX_KWARTIEREN = 300
 KLOK_GELDIG = 1_700_000_000
 METING_TE_OUD_S = 60
+# Een verlopen plan: het laatste kwartier hooguit zo lang vasthouden, daarna veilig terug naar zelfverbruik.
+VASTHOUDEN_NA_S = 30 * 60
 MAX_APPARATEN = 32
 ACTIES = ("aan", "uit")
 
@@ -161,13 +163,18 @@ class ApparaatStand:
     stand: str = ""
 
 
-def apparaat_stand(plan: Plan | None, index: int, nu: float) -> ApparaatStand:
-    """Wat het plan nu van apparaat `index` vraagt. Een verlopen plan vraagt niets meer."""
+def apparaat_stand(plan: Plan | None, index: int, nu: float, vorig: Plan | None = None) -> ApparaatStand:
+    """Wat het plan nu van apparaat `index` vraagt. Een verlopen plan vraagt niets meer.
+
+    Begint het nieuwe plan pas bij het volgende kwartier, dan telt tot die tijd ook een blok uit het vorige
+    plan: anders gaat een laadpaal elk kwartier een minuut uit."""
     if plan is None or nu >= plan.geldig_tot:
         return ApparaatStand(None)
-    for last in plan.lasten:
-        if last.get("apparaat") == index and _getal(last.get("van"), 0) <= nu < _getal(last.get("tot"), 0):
-            return ApparaatStand(last.get("actie") == "aan", _getal(last.get("temp")), "plan", str(last.get("stand", "")))
+    plannen = [plan] + ([vorig] if vorig is not None and nu < plan.t0 and nu < vorig.geldig_tot else [])
+    for p in plannen:
+        for last in p.lasten:
+            if last.get("apparaat") == index and _getal(last.get("van"), 0) <= nu < _getal(last.get("tot"), 0):
+                return ApparaatStand(last.get("actie") == "aan", _getal(last.get("temp")), "plan", str(last.get("stand", "")))
     if plan.rust.get(index) == "uit":
         return ApparaatStand(False, None, "rust")
     return ApparaatStand(None)
@@ -179,8 +186,22 @@ def _grens(lokaal: float, plan: float) -> float:
     return lokaal if lokaal > 0 else plan
 
 
+def plan_voor(plan: Plan | None, vorig: Plan | None, nu: float) -> tuple[Plan | None, int]:
+    """Welk plan en welk kwartier nu gelden.
+
+    Een nieuw plan begint bij het volgende kwartier, maar komt er een minuut of twee eerder aan: tot dan geldt
+    het vorige. Is een plan verlopen en komt er geen nieuw, dan het laatste kwartier hooguit 30 minuten."""
+    for p in (plan, vorig):
+        if p is not None and nu < p.geldig_tot and (i := p.index(nu)) >= 0:
+            return p, i
+    for p in (plan, vorig):
+        if p is not None and p.kwartieren and p.geldig_tot <= nu < p.geldig_tot + VASTHOUDEN_NA_S:
+            return p, max(0, min(len(p.kwartieren), int((p.geldig_tot - p.t0) // p.stap)) - 1)
+    return None, -1
+
+
 def regel(plan: Plan | None, nu: float, m: Meting, g: Grenzen, vorig_bat_w: float | None = None,
-          traag: bool = False) -> Opdracht:
+          traag: bool = False, vorig: Plan | None = None) -> Opdracht:
     """Eén regelstap. traag = de metingen komen te langzaam binnen om op het net bij te sturen:
     dan volgt de batterij het vermogen uit het plan."""
     bat_nu = m.bat_w or 0.0
@@ -192,15 +213,14 @@ def regel(plan: Plan | None, nu: float, m: Meting, g: Grenzen, vorig_bat_w: floa
         bron, afwijking = NOODSTOP, "noodstop"
     elif g.gepauzeerd:
         bron, afwijking = GEBRUIKER, "gepauzeerd"
-    elif plan is None:
+    elif plan is None and vorig is None:
         afwijking = "geen plan"
     elif nu < KLOK_GELDIG:
         afwijking = "klok onbekend"
-    elif nu >= plan.geldig_tot:
-        afwijking = "plan verlopen"
-    elif (slot := plan.index(nu)) < 0:
-        afwijking = "buiten het plan"
+    elif (gekozen := plan_voor(plan, vorig, nu))[0] is None:
+        afwijking = "plan verlopen" if plan is not None and nu >= plan.geldig_tot else "buiten het plan"
     else:
+        plan, slot = gekozen
         kwartier = plan.kwartieren[slot]
         stand, bron = kwartier.stand, PLAN
 
@@ -321,3 +341,69 @@ def apparaat_blokken(plan: Plan | None, nu: float, namen: dict[int, str] | None 
         uit.append(blok)
     uit.sort(key=lambda b: (b["van"], b["i"] if b["i"] is not None else 99))
     return uit[:maximaal]
+
+
+# ------------------------------------------------------------------ Deye / Sunsynk: tijdprogramma's
+
+DEYE_LADEN_W = 200          # meer laden dan dit vraagt het plan echt van het net
+DEYE_MIN_STROOM_A = 10
+
+
+@dataclass
+class DeyeWens:
+    """Wat de tijdprogramma's van een Deye moeten doen. De Deye kent geen vermogen in W: hij laadt van het net
+    (Grid) tot een lading, of hij houdt een ondergrens aan en doet verder zijn eigen zelfverbruik."""
+    laden: bool
+    soc: float
+    stroom_a: float | None
+    stand: str                 # wat we toepassen: netladen, vasthouden of zelfverbruik
+    bron: str = PLAN
+    beperking: str = ""        # zekering, max_netladen, min_soc, pauze, noodstop, geen_plan, geen_vast_ontladen
+    gevraagd_w: float = 0
+    slot: int = -1
+
+
+def deye_wens(plan: Plan | None, vorig: Plan | None, nu: float, soc_nu: float | None, spanning: float | None, g: Grenzen,
+              max_pct: float = 90, min_pct: float = 20, max_stroom_a: float | None = None,
+              max_fase_a: float | None = None) -> DeyeWens:
+    """Van het kwartier van nu naar de tijdprogramma's."""
+    uit = lambda beperking, bron: DeyeWens(False, min_pct, None, ZELFVERBRUIK, bron, beperking)
+    if g.noodstop:
+        return uit("noodstop", NOODSTOP)
+    if g.gepauzeerd:
+        return uit("pauze", GEBRUIKER)
+    gekozen, slot = plan_voor(plan, vorig, nu)
+    if gekozen is None:
+        return uit("geen_plan", TERUGVAL)
+    k = gekozen.kwartieren[slot]
+
+    if k.stand == NETLADEN and k.bat_w < -DEYE_LADEN_W:
+        beperking = ""
+        # De doel-lading uit het plan, anders zo vol als netladen mag; nooit voller dan dat.
+        doel = k.soc_eind if soc_nu is None or k.soc_eind > soc_nu + 1 else max_pct
+        if doel > max_pct:
+            doel, beperking = max_pct, "max_netladen"
+        watt = -k.bat_w
+        for grens in (g.max_laad_w, gekozen.max_laad_w):
+            if grens > 0:
+                watt = min(watt, grens)
+        stroom = None
+        if spanning and spanning > 20:
+            stroom = max(DEYE_MIN_STROOM_A, round(watt / spanning))
+            if max_stroom_a:
+                stroom = min(stroom, max_stroom_a)
+            # De hoofdzekering: zo veel minder laden dat de zwaarste fase onder 90 % blijft (3 fasen).
+            if g.zekering_a > 0 and max_fase_a is not None and max_fase_a > 0.95 * g.zekering_a:
+                stroom = round(stroom - (max_fase_a - 0.9 * g.zekering_a) * 230 * 3 / spanning)
+                beperking = "zekering"
+                if stroom < DEYE_MIN_STROOM_A:
+                    return DeyeWens(False, max(soc_nu or min_pct, min_pct), None, VASTHOUDEN, PLAN, "zekering", k.bat_w, slot)
+        return DeyeWens(True, round(doel), stroom, NETLADEN, PLAN, beperking, k.bat_w, slot)
+
+    if k.stand in (VASTHOUDEN, STANDBY, ALLEENZON) and abs(k.bat_w) <= DEYE_LADEN_W:
+        # Niet ontladen: de ondergrens op de lading van nu. Zon laadt gewoon door.
+        doel = max(soc_nu if soc_nu is not None else min_pct, min_pct)
+        return DeyeWens(False, round(min(doel, 100)), None, VASTHOUDEN, PLAN, "", k.bat_w, slot)
+
+    # Zelfverbruik, en terugleveren uit de batterij (kan een Deye zo niet): zijn eigen zelfverbruik.
+    return DeyeWens(False, min_pct, None, ZELFVERBRUIK, PLAN, "geen_vast_ontladen" if k.stand == NETONTLADEN else "", k.bat_w, slot)

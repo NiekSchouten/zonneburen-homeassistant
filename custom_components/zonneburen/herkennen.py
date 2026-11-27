@@ -330,6 +330,78 @@ def kies_opties(opties: list[str]) -> dict[str, str]:
     return {soort: optie for soort, (_, optie) in beste.items()}
 
 
+# Getallen die bij een omvormer horen maar de batterij niet sturen. De teruglevergrens van een Deye
+# (zero_export_power, 0-500 W) leek op een batterijvermogen: die werd op 0 gezet en de batterij nooit gestuurd.
+GEEN_BATTERIJVERMOGEN = (" zero export ", " export limit ", " peak shaving ", " max export ", " max import ", " pv power ",
+                         " generator ", " smartload ", " smart load ")
+MIN_BEREIK_W = 1000
+
+
+def geschikt_vermogen(e: Entiteit) -> bool:
+    """Kan dit getal een batterij sturen? In W of kW, met een bereik van minstens 1000 W, en geen grens of generator."""
+    if e.eenheid not in ("W", "kW") or _heeft(e.tekst, *GEEN_BATTERIJVERMOGEN):
+        return False
+    factor = 1000 if e.eenheid == "kW" else 1
+    bereik = max(abs(e.maximum or 0), abs(e.minimum or 0)) * factor
+    return bereik >= MIN_BEREIK_W
+
+
+@dataclass
+class DeyeTou:
+    """De tijdprogramma's van een Deye of Sunsynk (Solarman): zes programma's met een laden-keuze, een lading en
+    een tijd, de laadstroom van het net en de accuspanning."""
+    tou: str
+    laden: list[str]
+    soc: list[str]
+    tijd: list[str]
+    stroom: str | None = None
+    spanning: str | None = None
+    min_soc: str | None = None
+    merk: str = ""
+
+
+def _programma(entity_id: str, deel: str) -> int | None:
+    """Het nummer van het programma uit bijvoorbeeld select.deye_program_3_charging, of None."""
+    naam = entity_id.split(".", 1)[-1]
+    for voor in ("program_", "prog", "time_of_use_"):
+        i = naam.find(voor)
+        if i >= 0:
+            rest = naam[i + len(voor):]
+            cijfers = rest[:1]
+            if cijfers.isdigit() and rest[1:].lstrip("_").startswith(deel):
+                return int(cijfers)
+    return None
+
+
+def zoek_deye(entiteiten: list[Entiteit]) -> DeyeTou | None:
+    """Een Deye of Sunsynk herken je aan time_of_use plus program_1_charging op hetzelfde apparaat."""
+    keuzes = [e for e in entiteiten if e.domein == "select" and e.platform != "zonneburen"]
+    for tou in (e for e in keuzes if e.entity_id.endswith("time_of_use") or e.entity_id.endswith("_tou")):
+        zelfde = [e for e in entiteiten if e.platform != "zonneburen" and (e.apparaat == tou.apparaat if tou.apparaat else True)]
+
+        def per_nummer(domein: str, deel: str, zelfde: list[Entiteit] = zelfde) -> list[str]:
+            gevonden = {}
+            for e in zelfde:
+                if e.domein == domein and (n := _programma(e.entity_id, deel)) is not None and 1 <= n <= 6:
+                    gevonden.setdefault(n, e.entity_id)
+            return [gevonden[n] for n in sorted(gevonden)]
+
+        laden, soc = per_nummer("select", "charg"), per_nummer("number", "soc")
+        if not laden or not soc or not any(_programma(i, "charg") == 1 for i in laden):
+            continue
+
+        def een(domein: str, *eindes: str, zelfde: list[Entiteit] = zelfde) -> str | None:
+            return next((e.entity_id for e in zelfde if e.domein == domein and any(e.entity_id.endswith(x) for x in eindes)), None)
+
+        return DeyeTou(
+            tou=tou.entity_id, laden=laden, soc=soc, tijd=per_nummer("time", "time"),
+            stroom=een("number", "battery_grid_charging_current", "grid_charging_current", "grid_charge_current"),
+            spanning=een("sensor", "battery_voltage"),
+            min_soc=een("number", "battery_low_soc", "battery_shutdown_soc"),
+            merk=tou.merk or tou.platform)
+    return None
+
+
 def zoek_sturing(entiteiten: list[Entiteit], sensoren: Sensoren | None = None) -> Sturing | None:
     """Zoekt bij de batterij de getallen en keuzes waarmee Zonneburen hem kan sturen."""
     per_id = {e.entity_id: e for e in entiteiten}
@@ -340,8 +412,8 @@ def zoek_sturing(entiteiten: list[Entiteit], sensoren: Sensoren | None = None) -
     def dichtbij(e: Entiteit) -> int:
         return 30 if e.apparaat and e.apparaat in thuis else 15 if e.platform in platforms else 0
 
-    getallen = [e for e in entiteiten if e.domein in ("number", "input_number") and e.platform != "zonneburen"
-                and (e.eenheid in ("W", "kW") or _heeft(e.tekst, " power ", " vermogen ", " setpoint "))]
+    # Alleen getallen die echt een batterij kunnen sturen. Bij twijfel kiezen we niets en kiest de bewoner zelf.
+    getallen = [e for e in entiteiten if e.domein in ("number", "input_number") and e.platform != "zonneburen" and geschikt_vermogen(e)]
     keuzes = [e for e in entiteiten if e.domein in ("select", "input_select") and e.opties and e.platform != "zonneburen"]
     schakelaars = [e for e in entiteiten if e.domein == "switch" and e.platform != "zonneburen"]
 
