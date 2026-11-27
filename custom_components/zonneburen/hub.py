@@ -336,7 +336,8 @@ class ZonneburenHub:
             return
         soc, _ = self._getal(self.opties.get(CONF_SOC))
         bericht = protocol.bouw_telemetrie(self.adres, self.hub_id, FIRMWARE, meting, soc,
-                                           protocol.prijs_nu(self.prijzen, nu), self._wijkvermogen(), False)
+                                           protocol.prijs_nu(self.prijzen, nu), self._wijkvermogen(), False,
+                                           self._vermogen_per_apparaat())
         self._publiceer_huis("telemetrie", json.dumps(bericht))
 
     # ------------------------------------------------------------------ Logboek en meldingen
@@ -662,6 +663,20 @@ class ZonneburenHub:
         if waarde is not None:
             return waarde * 1000 if eenheid == "kW" else waarde
         return apparaat["watts"] if self._is_aan(apparaat["host"]) else None
+
+    def _vermogen_per_apparaat(self) -> list[list[int]]:
+        """[plek, watt] voor elk apparaat: gemeten, of het opgegeven vermogen als hij aan staat. Een thermostaat
+        zonder meting telt niet: "aan" zegt daar niets over wat hij verbruikt."""
+        uit = []
+        for i, apparaat in enumerate(self._apparaten()):
+            if not apparaat["enabled"] or not apparaat["host"] or is_licht(apparaat):
+                continue
+            watt = self.vermogen_gemeten(apparaat)
+            if watt is None:
+                thermisch = protocol.is_domein(apparaat["host"], "climate", "water_heater")
+                watt = apparaat["watts"] if self._is_aan(apparaat["host"]) and not thermisch else 0
+            uit.append([i, max(0, round(watt))])
+        return uit
 
     def _wijkvermogen(self) -> dict[int, int]:
         """Wat er nu op wijkstroom draait, per soort apparaat: zo verrekent de server het gedeelde deel."""

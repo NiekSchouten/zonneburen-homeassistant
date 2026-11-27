@@ -96,3 +96,28 @@ async def test_configureren_heeft_een_menu(hass):
     assert resultaat["type"] is FlowResultType.MENU
     resultaat = await hass.config_entries.options.async_configure(resultaat["flow_id"], {"next_step_id": "apparaten"})
     assert resultaat["type"] is FlowResultType.ABORT and resultaat["reason"] == "geen_apparaten"
+
+
+def test_subapparaat_zonder_waarschuwing_van_home_assistant():
+    """Een ChildDeviceEntry kent alleen parent_device_id; naar via_device_id, fabrikant of model vragen waarschuwt."""
+    from unittest.mock import MagicMock
+
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.zonneburen.config_flow import _echt_apparaat
+
+    class Kind:
+        __slots__ = ("parent_device_id",)
+
+        def __init__(self, ouder):
+            self.parent_device_id = ouder
+
+        def __getattr__(self, naam):
+            raise AssertionError(f"vroeg naar {naam}")
+
+    ouder = MagicMock(spec=dr.DeviceEntry, manufacturer="Daikin", model="Altherma")
+    register = MagicMock()
+    register.async_get = lambda device_id: ouder if device_id == "ouder" else None
+    assert _echt_apparaat(register, Kind("ouder")) is ouder
+    assert _echt_apparaat(register, ouder) is ouder
+    assert _echt_apparaat(register, None) is None

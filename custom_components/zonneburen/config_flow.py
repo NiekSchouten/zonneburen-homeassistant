@@ -43,12 +43,12 @@ DOMEINEN = ("sensor", "number", "input_number", "select", "input_select", "switc
 # ---------------------------------------------------------------------------------------------- Wat Home Assistant heeft
 
 def _echt_apparaat(register, apparaat):
-    """Het apparaat zelf, of bij een subapparaat zijn ouder. Een ChildDeviceEntry heeft geen fabrikant of model:
-    daar vragen we niet naar, anders waarschuwt Home Assistant."""
+    """Het apparaat zelf, of bij een subapparaat zijn ouder. Een ChildDeviceEntry (vanaf Home Assistant 2026.11) heeft
+    geen fabrikant, model of via_device_id: alleen parent_device_id. Naar de rest vragen geeft een waarschuwing."""
     for _ in range(3):
-        if apparaat is None or type(apparaat) is dr.DeviceEntry:
+        if apparaat is None or isinstance(apparaat, dr.DeviceEntry):
             return apparaat
-        ouder = getattr(apparaat, "via_device_id", None) or getattr(apparaat, "parent_id", None)
+        ouder = getattr(type(apparaat), "parent_device_id", None) is not None and apparaat.parent_device_id
         apparaat = register.async_get(ouder) if ouder else None
     return None
 

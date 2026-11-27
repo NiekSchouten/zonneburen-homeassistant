@@ -4,7 +4,7 @@
  * ook het paneel Energieplan in de zijbalk. Elke kaart vindt zijn sensor zelf en heeft een visuele editor:
  *   custom:zonneburen-batterij-card       je batterij nu, met knoppen
  *   custom:zonneburen-energieplan-card    het plan op een tijdlijn
- *   custom:zonneburen-kwartier-card       het schema per kwartier, zoals in de webapp
+ *   custom:zonneburen-kwartier-card       het energieplan in blokken of per kwartier, met filters en kolommen
  *   custom:zonneburen-apparaten-card      wanneer het plan je apparaten laat draaien
  *   custom:zonneburen-buurtbatterij-card  de virtuele buurtbatterij
  *   custom:zonneburen-card                de wijk als straat met huisjes (hieronder)
@@ -57,7 +57,7 @@
 (function () {
   "use strict";
 
-  const VERSIE = "2.0.1";
+  const VERSIE = "2.1.0";
   // De integratie levert dit bestand zelf mee; staat het ook als resource in een dashboard, dan
   // laadt het twee keer. De eerste wint.
   if (customElements.get("zonneburen-card")) return;
@@ -934,87 +934,294 @@
     }
   }
 
-  // ------------------------------------------------------------------ Kaart: Per kwartier (schema)
+  // ------------------------------------------------------------------ Kaart: Energieplan per kwartier of per blok
+
+  // Kolommen die de bewoner zelf aan of uit zet. Wat hij kiest, onthoudt de browser.
+  const KOLOMMEN = [
+    ["prijs", "Prijs"], ["zon", "Zon"], ["verbruik", "Verbruik"], ["batterij", "Batterij"], ["net", "Net"], ["netdoel", "Netdoel"], ["lading", "Lading"],
+  ];
+  const STANDAARD_KOLOMMEN = ["prijs", "zon", "verbruik", "batterij", "net", "lading"];
+  const WEERGAVE_OPSLAG = "zonneburen-energieplan-weergave";
+
+  const leesWeergave = () => {
+    try { return JSON.parse(window.localStorage.getItem(WEERGAVE_OPSLAG) || "{}") || {}; } catch (_e) { return {}; }
+  };
+  const bewaarWeergave = (w) => {
+    try { window.localStorage.setItem(WEERGAVE_OPSLAG, JSON.stringify(w)); } catch (_e) { /* privévenster: alleen deze sessie */ }
+  };
+  const duurTekst = (s) => {
+    const min = Math.round(s / 60);
+    const u = Math.floor(min / 60), m = min % 60;
+    return u ? (m ? `${u} u ${m} min` : `${u} uur`) : `${m} min`;
+  };
+  const kwhTekst = (k) => (Math.abs(k) < 0.05 ? "0" : Math.abs(k).toFixed(Math.abs(k) < 10 ? 1 : 0).replace(".", ",")) + " kWh";
 
   class ZonneburenKwartierCard extends ZbKaart {
     static get schema() {
       return [
         { name: "entity", label: "Sensor Energieplan", selector: { entity: { integration: "zonneburen", domain: "sensor" } } },
         { name: "titel", label: "Titel", selector: { text: {} } },
-        { name: "filter", label: "Standaard tonen", selector: { select: { mode: "dropdown", options: [
-          { value: "ingrepen", label: "Alleen ingrepen" }, { value: "24", label: "Komende 24 uur" }, { value: "alles", label: "Het hele plan" }] } } },
+        { name: "weergave", label: "Weergave", selector: { select: { mode: "dropdown", options: [
+          { value: "blokken", label: "Blokken: kwartieren met dezelfde stand samen" }, { value: "kwartieren", label: "Per kwartier" }] } } },
+        { name: "toon", label: "Standaard tonen", selector: { select: { mode: "dropdown", options: [
+          { value: "ingrepen", label: "Alleen ingrepen" }, { value: "wijzigingen", label: "Alleen wijzigingen (per kwartier)" }, { value: "alles", label: "Alles" }] } } },
+        { name: "bereik", label: "Hoe ver vooruit", selector: { select: { mode: "dropdown", options: [
+          { value: "24", label: "Komende 24 uur" }, { value: "alles", label: "Het hele plan" }] } } },
+        { name: "samenvatting", label: "Samenvatting bovenaan", selector: { boolean: {} } },
         { name: "max_hoogte", label: "Maximale hoogte (px, 0 = alles)", selector: { number: { min: 0, max: 2000, step: 50, mode: "box" } } },
       ];
     }
     getCardSize() { return 8; }
-    _extraSleutel() { return this._filter || ""; }
+
+    // Wat nu geldt: eerst wat de bewoner hier koos, dan de kaartinstelling, dan de standaard.
+    _keuze() {
+      const c = this._config || {};
+      const w = { ...leesWeergave(), ...(this._k || {}) };
+      // Oude instelling "filter" (ingrepen / 24 / alles) van de vorige versie van deze kaart.
+      const oud = c.filter === "24" ? { bereik: "24", toon: "alles" } : c.filter === "alles" ? { bereik: "alles", toon: "alles" } : {};
+      const k = {
+        weergave: w.weergave || c.weergave || "blokken",
+        toon: w.toon || c.toon || oud.toon || "ingrepen",
+        bereik: w.bereik || c.bereik || oud.bereik || "24",
+        kolommen: Array.isArray(w.kolommen) ? w.kolommen : STANDAARD_KOLOMMEN,
+        menu: !!(this._k && this._k.menu),
+      };
+      if (k.weergave === "blokken" && k.toon === "wijzigingen") k.toon = "alles";
+      return k;
+    }
+    _extraSleutel() { return JSON.stringify(this._keuze()); }
+
+    _zet(wijziging) {
+      const k = { ...this._keuze(), ...wijziging };
+      this._k = k;
+      const { menu, ...blijvend } = k;
+      bewaarWeergave(blijvend);
+      this._vorige = null;
+      this.hass = this._hass;
+    }
 
     _klik(ev) {
-      const knop = ev.target.closest("[data-filter]");
-      if (knop) { this._filter = knop.dataset.filter; this._vorige = null; this.hass = this._hass; }
+      const knop = ev.target.closest("[data-zet]");
+      if (knop) { const [k, v] = knop.dataset.zet.split(":"); this._zet({ [k]: v }); return; }
+      const kolom = ev.target.closest("[data-kolom]");
+      if (kolom) {
+        const lijst = new Set(this._keuze().kolommen);
+        if (lijst.has(kolom.dataset.kolom)) lijst.delete(kolom.dataset.kolom); else lijst.add(kolom.dataset.kolom);
+        this._zet({ kolommen: KOLOMMEN.map(([k]) => k).filter((k) => lijst.has(k)) });
+        return;
+      }
+      if (ev.target.closest("[data-menu]")) this._zet({ menu: !this._keuze().menu });
+      if (ev.target.closest("[data-standaard]")) this._zet({ kolommen: STANDAARD_KOLOMMEN });
     }
 
     _inhoud(st) {
       const a = st.attributes || {};
       const nu = Date.now() / 1000;
-      const filter = this._filter || this._config.filter || "ingrepen";
-      const lasten = Array.isArray(a.schema_lasten) ? a.schema_lasten : (Array.isArray(a.apparaatblokken) ? a.apparaatblokken : []);
+      const k = this._keuze();
+      const titel = this._config.titel || "Energieplan";
       if (!Array.isArray(a.schema) || !a.schema.length) {
-        return `<ha-card><div class="zb-kop"><div class="zb-titel">${esc(this._config.titel || "Per kwartier")}</div></div>
+        return `<ha-card><div class="zb-kop"><div class="zb-titel">${esc(titel)}</div></div>
           <div class="zb-melding info">Het schema per kwartier komt mee met de nieuwste versie van de Zonneburen-server. Zodra er een nieuw plan is (elk kwartier), verschijnt het hier.</div></ha-card>`;
       }
-      const alle = a.schema.map((r) => ({ t: r[0], stand: r[1], in: r[2], uit: r[3], zon: r[4], verbruik: r[5], bat: r[6], net: r[7], doel: r[8], soc: r[9], voorspeld: r[10] }))
-        .filter((r) => r.t + KWARTIER > nu);
+      const lasten = Array.isArray(a.schema_lasten) ? a.schema_lasten : (Array.isArray(a.apparaatblokken) ? a.apparaatblokken : []);
       const lastIn = (r) => lasten.filter((l) => l.van < r.t + KWARTIER && l.tot > r.t);
-      const actief = (r) => r.stand !== "zelfverbruik" || Math.abs(r.bat || 0) > 100 || lastIn(r).length > 0;
-      const rijen = filter === "alles" ? alle : filter === "24" ? alle.filter((r) => r.t < nu + 86400) : alle.filter(actief);
-      const prijzen = rijen.map((r) => r.in).filter((p) => typeof p === "number");
-      const pLaag = Math.min(...prijzen), pHoog = Math.max(...prijzen);
-      const batMax = Math.max(500, ...rijen.map((r) => Math.abs(r.bat || 0)));
-      const aantal = rijen.length;
-      const sub = filter === "alles" ? `${aantal} kwartieren, tot het einde van het plan` : filter === "24" ? `${aantal} kwartieren, de komende 24 uur`
-        : aantal ? `${aantal} ${aantal === 1 ? "kwartier" : "kwartieren"} waarin de batterij of een apparaat iets doet` : "geen ingrepen gepland";
-      const W = (w) => (typeof w !== "number" ? "–" : Math.abs(w) >= 1000 ? (Math.abs(w) / 1000).toFixed(1).replace(".", ",") + " kW" : Math.round(Math.abs(w)) + " W");
-
-      let body = "", dag = null;
-      for (const r of rijen) {
-        const d = dagKop(r.t);
-        if (d !== dag) { dag = d; body += `<tr class="dag"><th colspan="9">${esc(d)}</th></tr>`; }
-        const bat = (r.bat || 0) < -50 ? "laad" : (r.bat || 0) > 50 ? "ontlaad" : "";
-        const pp = pHoog - pLaag > 0.005 ? (r.in - pLaag) / (pHoog - pLaag) : 0.5;
-        const nuRij = r.t <= nu && nu < r.t + KWARTIER;
-        const balk = Math.min(1, Math.abs(r.bat || 0) / batMax) * 50;
-        body += `<tr class="${nuRij ? "nu" : ""}">
-          <td class="tijd">${tijd(r.t)}${nuRij ? "<small>nu</small>" : ""}</td>
-          <td class="stand"><span class="chip" style="--k:${PLAN_KLEUR[r.stand] || KLEUR.grijs}">${esc(PLAN_ZIN[r.stand] || r.stand)}</span>${lastIn(r).map((l) => `<span class="chip app"><ha-icon icon="mdi:power-plug"></ha-icon>${esc(l.naam)}${l.stand === "blokkeren" ? " pauze" : ""}</span>`).join("")}</td>
-          <td class="r prijs" data-k="Prijs"><span style="background:hsl(${(130 - klem(pp, 0, 1) * 130).toFixed(0)} 65% 45% / .2)">${euro3(r.in)}${r.voorspeld ? "*" : ""}</span></td>
-          <td class="r" data-k="Zon">${(r.zon || 0) >= 10 ? W(r.zon) : "–"}</td>
-          <td class="r" data-k="Verbruik">${W(r.verbruik)}</td>
-          <td class="bat ${bat}" data-k="${bat === "laad" ? "Laadt" : bat === "ontlaad" ? "Ontlaadt" : "Batterij"}"><span class="balk"><i style="${(r.bat || 0) < 0 ? "right" : "left"}:50%;width:${balk.toFixed(1)}%"></i></span><span>${bat ? `<em>${bat === "laad" ? "laadt " : "ontlaadt "}</em>${W(r.bat)}` : "rust"}</span></td>
-          <td class="r net ${(r.net || 0) < -50 ? "terug" : ""}" data-k="${(r.net || 0) < -50 ? "Terug" : "Net"}">${Math.abs(r.net || 0) < 50 ? "0" : ((r.net < 0 ? "↑ " : "↓ ") + W(r.net))}</td>
-          <td class="r doel" data-k="Netdoel">${typeof r.doel === "number" ? W(r.doel) : ""}</td>
-          <td class="soc" data-k="Lading"><span class="balk"><i style="width:${klem(r.soc || 0, 0, 100)}%"></i></span><span>${Math.round(r.soc || 0)}%</span></td>
-        </tr>`;
+      const richting = (w) => ((w || 0) < -100 ? "laad" : (w || 0) > 100 ? "ontlaad" : "rust");
+      const alle = a.schema.map((r) => ({ t: r[0], stand: r[1], in: r[2], uit: r[3], zon: r[4], verbruik: r[5], bat: r[6], net: r[7], doel: r[8], soc: r[9], voorspeld: r[10] }))
+        .filter((r) => r.t + KWARTIER > nu && (k.bereik === "alles" || r.t < nu + 86400));
+      let socVoor = typeof a.soc_nu === "number" ? a.soc_nu : null;
+      for (const r of alle) {
+        r.socVoor = socVoor ?? r.soc;
+        socVoor = r.soc;
+        r.apps = lastIn(r);
+        r.sleutel = [r.stand, richting(r.bat), r.apps.map((l) => `${l.naam}:${l.stand || ""}`).sort().join(",")].join("|");
+        r.actief = r.stand !== "zelfverbruik" || Math.abs(r.bat || 0) > 100 || r.apps.length > 0;
       }
-      const hoogte = Number(this._config.max_hoogte ?? 520);
-      return `<ha-card>
-        <div class="zb-kop">
-          <div><div class="zb-titel">${esc(this._config.titel || "Per kwartier")}</div><div class="zb-sub">${esc(sub)}${a.advies ? ` · <span class="zb-chip">advies</span>` : ""}</div></div>
-          <div class="zb-segment" role="group" aria-label="Welke kwartieren">
-            ${[["ingrepen", "Ingrepen"], ["24", "24 uur"], ["alles", "Hele plan"]].map(([k, l]) => `<button data-filter="${k}" class="${filter === k ? "aan" : ""}">${l}</button>`).join("")}
-          </div>
+
+      // Blokken: aaneengesloten kwartieren met dezelfde stand, richting en apparaten, binnen één dag.
+      const blokken = [];
+      for (const r of alle) {
+        const laatste = blokken[blokken.length - 1];
+        if (laatste && laatste.sleutel === r.sleutel && dagKop(laatste.van) === dagKop(r.t) && laatste.tot === r.t) {
+          laatste.rijen.push(r); laatste.tot = r.t + KWARTIER;
+        } else {
+          blokken.push({ sleutel: r.sleutel, van: r.t, tot: r.t + KWARTIER, stand: r.stand, apps: r.apps, actief: r.actief, rijen: [r] });
+        }
+      }
+      // Tot wanneer een wijziging geldt, voor de kwartierweergave "alleen wijzigingen".
+      for (const b of blokken) b.rijen[0].tot = b.tot;
+
+      const prijzen = alle.map((r) => r.in).filter((p) => typeof p === "number");
+      const pLaag = prijzen.length ? Math.min(...prijzen) : 0, pHoog = prijzen.length ? Math.max(...prijzen) : 0;
+      const prijsKleur = (p) => {
+        const f = pHoog - pLaag > 0.005 ? klem((p - pLaag) / (pHoog - pLaag), 0, 1) : 0.5;
+        return `hsl(${(130 - f * 130).toFixed(0)} 65% 45% / .2)`;
+      };
+      const W = (w) => (typeof w !== "number" ? "–" : Math.abs(w) >= 1000 ? (Math.abs(w) / 1000).toFixed(1).replace(".", ",") + " kW" : Math.round(Math.abs(w)) + " W");
+      const kol = new Set(k.kolommen);
+      const toon = (c) => kol.has(c);
+
+      // ---- Samenvatting
+      const som = (lijst, f) => lijst.reduce((s, r) => s + f(r), 0) * KWARTIER / 3600 / 1000;
+      const laadt = som(alle, (r) => Math.max(0, -(r.bat || 0)));
+      const levert = som(alle, (r) => Math.max(0, r.bat || 0));
+      const afname = som(alle, (r) => Math.max(0, r.net || 0));
+      const terug = som(alle, (r) => Math.max(0, -(r.net || 0)));
+      const goedkoopst = alle.filter((r) => typeof r.in === "number").reduce((b, r) => (!b || r.in < b.in ? r : b), null);
+      const samenvatting = this._config.samenvatting === false ? "" : `<div class="tegels">
+          <div><small>Batterij laadt</small><b>${kwhTekst(laadt)}</b></div>
+          <div><small>Batterij levert</small><b>${kwhTekst(levert)}</b></div>
+          <div><small>Van het net</small><b>${kwhTekst(afname)}</b></div>
+          <div><small>Terug naar het net</small><b>${kwhTekst(terug)}</b></div>
+          ${goedkoopst ? `<div><small>Goedkoopst</small><b>${tijd(goedkoopst.t)}</b><span>${euro3(goedkoopst.in)}</span></div>` : ""}
+        </div>`;
+
+      // ---- Bediening
+      const segment = (naam, label, opties) => `<div class="zb-segment" role="group" aria-label="${esc(label)}">${opties
+        .map(([v, l]) => `<button data-zet="${naam}:${v}" class="${k[naam] === v ? "aan" : ""}" aria-pressed="${k[naam] === v}">${l}</button>`).join("")}</div>`;
+      const toonOpties = k.weergave === "kwartieren"
+        ? [["ingrepen", "Ingrepen"], ["wijzigingen", "Wijzigingen"], ["alles", "Alles"]] : [["ingrepen", "Ingrepen"], ["alles", "Alles"]];
+      const bediening = `<div class="bediening">
+          ${segment("weergave", "Weergave", [["blokken", "Blokken"], ["kwartieren", "Per kwartier"]])}
+          ${segment("toon", "Wat tonen", toonOpties)}
+          ${segment("bereik", "Hoe ver vooruit", [["24", "24 uur"], ["alles", "Hele plan"]])}
+          <button class="kolomknop ${k.menu ? "aan" : ""}" data-menu aria-expanded="${k.menu}"><ha-icon icon="mdi:table-cog"></ha-icon>Kolommen</button>
         </div>
-        ${aantal ? `<div class="wrap" style="${hoogte > 0 ? `max-height:${hoogte}px` : ""}"><table>
-          <thead><tr><th>Tijd</th><th>Wat er gebeurt</th><th class="r">Prijs</th><th class="r">Zon</th><th class="r">Verbruik</th><th>Batterij</th><th class="r">Net</th><th class="r doel">Netdoel</th><th>Lading</th></tr></thead>
-          <tbody>${body}</tbody></table></div>`
-        : `<div class="zb-melding info">Geen ingrepen gepland: je batterij gebruikt gewoon je eigen stroom. Kies <b>24 uur</b> om alle kwartieren te zien.</div>`}
-        <div class="zb-voet">Prijs per kWh, groen is goedkoop en rood duur binnen deze lijst. * = verwachte prijs. Net: ↓ van het net, ↑ naar het net. Lading aan het eind van het kwartier.</div>
+        ${k.menu ? `<div class="kolommen">${KOLOMMEN.map(([c, l]) => `<button data-kolom="${c}" class="${toon(c) ? "aan" : ""}" aria-pressed="${toon(c)}"><ha-icon icon="${toon(c) ? "mdi:checkbox-marked" : "mdi:checkbox-blank-outline"}"></ha-icon>${l}</button>`).join("")}
+          <button class="terug" data-standaard>Standaard</button></div>` : ""}`;
+
+      // ---- Inhoud
+      const appChips = (apps) => apps.map((l) => `<span class="chip app"><ha-icon icon="mdi:power-plug"></ha-icon>${esc(l.naam)}${l.stand === "blokkeren" ? " pauze" : ""}</span>`).join("");
+      const standChip = (s) => `<span class="chip" style="--k:${PLAN_KLEUR[s] || KLEUR.grijs}">${esc(PLAN_ZIN[s] || s)}</span>`;
+      let body = "", aantal = 0, dag = null;
+      if (k.weergave === "blokken") {
+        const zicht = k.toon === "ingrepen" ? blokken.filter((b) => b.actief) : blokken;
+        aantal = zicht.length;
+        for (const b of zicht) {
+          const d = dagKop(b.van);
+          if (d !== dag) { dag = d; body += `<div class="dag">${esc(d)}</div>`; }
+          const r = b.rijen;
+          const nuBlok = b.van <= nu && nu < b.tot;
+          const bLaad = som(r, (x) => Math.max(0, -(x.bat || 0))), bLever = som(r, (x) => Math.max(0, x.bat || 0));
+          const bAf = som(r, (x) => Math.max(0, x.net || 0)), bTerug = som(r, (x) => Math.max(0, -(x.net || 0)));
+          const ps = r.map((x) => x.in).filter((p) => typeof p === "number");
+          const pGem = ps.length ? ps.reduce((s, p) => s + p, 0) / ps.length : null;
+          const pMin = ps.length ? Math.min(...ps) : null, pMax = ps.length ? Math.max(...ps) : null;
+          const doelen = r.map((x) => x.doel).filter((x) => typeof x === "number");
+          const socVan = r[0].socVoor, socTot = r[r.length - 1].soc;
+          const richt = richting(r.reduce((s, x) => s + (x.bat || 0), 0) / r.length);
+          const zin = richt === "laad" ? `Laadt ${kwhTekst(bLaad)}${b.stand === "netladen" ? " van het net" : ""}`
+            : richt === "ontlaad" ? `Levert ${kwhTekst(bLever)}${b.stand === "netontladen" ? " aan het net" : " aan het huis"}`
+            : b.stand === "vasthouden" ? "Houdt de lading vast" : b.stand === "standby" ? "Batterij staat stil" : "Gebruikt eigen stroom";
+          const m = (c, label, waarde, extra = "", stijl = "") => (toon(c) ? `<div class="m"><small>${label}</small><b${stijl ? ` style="${stijl}"` : ""}>${waarde}</b>${extra ? `<span>${extra}</span>` : ""}</div>` : "");
+          body += `<div class="blok ${nuBlok ? "nu" : ""} ${b.actief ? "" : "stil"}" style="--k:${PLAN_KLEUR[b.stand] || KLEUR.grijs}">
+            <div class="bt"><b>${tijd(b.van)}</b><span>tot ${tijd(b.tot)}</span><small>${nuBlok ? '<em>nu</em>' : ""}${duurTekst(b.tot - b.van)}</small></div>
+            <div class="bw">${standChip(b.stand)}${appChips(b.apps)}<div class="zin">${esc(zin)}</div></div>
+            <div class="bm">
+              ${m("prijs", "Prijs", pGem === null ? "–" : euro3(pGem), pMin !== null && pMax - pMin > 0.005 ? `${euro3(pMin)} – ${euro3(pMax).replace("€ ", "")}` : "", pGem === null ? "" : `background:${prijsKleur(pGem)}`)}
+              ${m("zon", "Zon", kwhTekst(som(r, (x) => Math.max(0, x.zon || 0))))}
+              ${m("verbruik", "Verbruik", kwhTekst(som(r, (x) => Math.max(0, x.verbruik || 0))))}
+              ${m("batterij", "Batterij", richt === "rust" ? "rust" : (richt === "laad" ? "+" : "−") + kwhTekst(richt === "laad" ? bLaad : bLever), richt === "rust" ? "" : "tot " + W(Math.max(...r.map((x) => Math.abs(x.bat || 0)))))}
+              ${m("net", "Net", bTerug > bAf ? "↑ " + kwhTekst(bTerug) : "↓ " + kwhTekst(bAf), bTerug > 0.05 && bAf > 0.05 ? (bTerug > bAf ? "↓ " + kwhTekst(bAf) : "↑ " + kwhTekst(bTerug)) : "")}
+              ${toon("netdoel") && doelen.length ? m("netdoel", "Netdoel", W(doelen.reduce((s, x) => s + x, 0) / doelen.length)) : ""}
+              ${toon("lading") ? `<div class="m lading"><small>Lading</small><b>${Math.round(socVan || 0)} → ${Math.round(socTot || 0)}%</b><span class="balk"><i style="width:${klem(socTot || 0, 0, 100)}%"></i></span></div>` : ""}
+            </div>
+          </div>`;
+        }
+        if (aantal) body = `<div class="blokken">${body}</div>`;
+      } else {
+        const zicht = k.toon === "ingrepen" ? alle.filter((r) => r.actief) : k.toon === "wijzigingen" ? blokken.map((b) => b.rijen[0]) : alle;
+        aantal = zicht.length;
+        const batMax = Math.max(500, ...zicht.map((r) => Math.abs(r.bat || 0)));
+        for (const r of zicht) {
+          const d = dagKop(r.t);
+          if (d !== dag) { dag = d; body += `<tr class="dag"><th colspan="9">${esc(d)}</th></tr>`; }
+          const bat = richting(r.bat);
+          const nuRij = r.t <= nu && nu < (k.toon === "wijzigingen" ? r.tot : r.t + KWARTIER);
+          const balk = Math.min(1, Math.abs(r.bat || 0) / batMax) * 50;
+          body += `<tr class="${nuRij ? "nu" : ""}">
+            <td class="tijd">${tijd(r.t)}${k.toon === "wijzigingen" ? `<small class="tot">tot ${tijd(r.tot)}</small>` : ""}${nuRij ? "<small>nu</small>" : ""}</td>
+            <td class="stand">${standChip(r.stand)}${appChips(r.apps)}</td>
+            ${toon("prijs") ? `<td class="r prijs" data-k="Prijs"><span style="background:${prijsKleur(r.in)}">${euro3(r.in)}${r.voorspeld ? "*" : ""}</span></td>` : ""}
+            ${toon("zon") ? `<td class="r" data-k="Zon">${(r.zon || 0) >= 10 ? W(r.zon) : "–"}</td>` : ""}
+            ${toon("verbruik") ? `<td class="r" data-k="Verbruik">${W(r.verbruik)}</td>` : ""}
+            ${toon("batterij") ? `<td class="bat ${bat === "rust" ? "" : bat}" data-k="${bat === "laad" ? "Laadt" : bat === "ontlaad" ? "Levert" : "Batterij"}"><span class="balk"><i style="${(r.bat || 0) < 0 ? "right" : "left"}:50%;width:${balk.toFixed(1)}%"></i></span><span>${bat !== "rust" ? `<em>${bat === "laad" ? "laadt " : "levert "}</em>${W(r.bat)}` : "rust"}</span></td>` : ""}
+            ${toon("net") ? `<td class="r net ${(r.net || 0) < -50 ? "terug" : ""}" data-k="${(r.net || 0) < -50 ? "Terug" : "Net"}">${Math.abs(r.net || 0) < 50 ? "0" : ((r.net < 0 ? "↑ " : "↓ ") + W(r.net))}</td>` : ""}
+            ${toon("netdoel") ? `<td class="r doel" data-k="Netdoel">${typeof r.doel === "number" ? W(r.doel) : ""}</td>` : ""}
+            ${toon("lading") ? `<td class="soc" data-k="Lading"><span class="balk"><i style="width:${klem(r.soc || 0, 0, 100)}%"></i></span><span>${Math.round(r.soc || 0)}%</span></td>` : ""}
+          </tr>`;
+        }
+        const kop = [["prijs", "Prijs", "r"], ["zon", "Zon", "r"], ["verbruik", "Verbruik", "r"], ["batterij", "Batterij", ""], ["net", "Net", "r"], ["netdoel", "Netdoel", "r"], ["lading", "Lading", ""]]
+          .filter(([c]) => toon(c)).map(([, l, cl]) => `<th class="${cl}">${l}</th>`).join("");
+        if (aantal) body = `<table><thead><tr><th>Tijd</th><th>Wat er gebeurt</th>${kop}</tr></thead><tbody>${body}</tbody></table>`;
+      }
+
+      const hoogte = Number(this._config.max_hoogte ?? 520);
+      const eenheid = k.weergave === "blokken" ? (aantal === 1 ? "blok" : "blokken") : aantal === 1 ? "kwartier" : "kwartieren";
+      const sub = `${aantal} ${eenheid}${k.toon === "ingrepen" ? " met een ingreep" : k.toon === "wijzigingen" ? " waarin iets verandert" : ""}, ${k.bereik === "24" ? "de komende 24 uur" : "tot het einde van het plan"}`;
+      const leeg = k.toon === "ingrepen"
+        ? `<div class="zb-melding info">Geen ingrepen gepland: je batterij gebruikt gewoon je eigen stroom. Kies <b>Alles</b> om het hele plan te zien.</div>`
+        : `<div class="zb-melding info">Er staat nog niets in het plan voor deze periode.</div>`;
+      return `<ha-card>
+        <div class="zb-kop"><div><div class="zb-titel">${esc(titel)}</div><div class="zb-sub">${esc(sub)}${a.advies ? ` · <span class="zb-chip">advies</span>` : ""}</div></div></div>
+        ${bediening}
+        ${samenvatting}
+        ${aantal ? `<div class="wrap ${k.weergave}" style="${hoogte > 0 ? `max-height:${hoogte}px` : ""}">${body}</div>` : leeg}
+        <div class="zb-voet">${k.weergave === "blokken"
+          ? "Elk blok is een periode waarin de batterij en je apparaten hetzelfde blijven doen. Prijs: gemiddeld per kWh, groen is goedkoop en rood duur binnen deze lijst. Lading: aan het begin en het eind van het blok."
+          : "Prijs per kWh, groen is goedkoop en rood duur binnen deze lijst. * = verwachte prijs. Net: ↓ van het net, ↑ naar het net. Lading aan het eind van het kwartier."}</div>
       </ha-card>`;
     }
 
     _stijl() {
       return `
+        .bediening { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+        .kolomknop { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--zb-lijn); border-radius: 10px; background: none;
+                     font: inherit; font-size: .8rem; font-weight: 600; color: var(--secondary-text-color); cursor: pointer; }
+        .kolomknop.aan { color: var(--primary-text-color); background: var(--zb-zacht); }
+        .kolomknop ha-icon, .kolommen ha-icon { --mdc-icon-size: 16px; }
+        .kolommen { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 12px; padding: 10px; border-radius: 12px; background: var(--zb-zacht); }
+        .kolommen button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 0; border-radius: 99px; background: var(--card-background-color, #fff);
+                           font: inherit; font-size: .8rem; color: var(--secondary-text-color); cursor: pointer; }
+        .kolommen button.aan { color: var(--primary-text-color); font-weight: 600; }
+        .kolommen button.aan ha-icon { color: var(--zb-lucht); }
+        .kolommen .terug { margin-left: auto; background: none; text-decoration: underline; }
+        .tegels { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 12px; }
+        .tegels > div { padding: 9px 12px; border-radius: 12px; background: var(--zb-zacht); }
+        .tegels small { display: block; color: var(--secondary-text-color); font-size: .72rem; }
+        .tegels b { display: block; font-size: 1.05rem; font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
+        .tegels span { font-size: .75rem; color: var(--secondary-text-color); }
         .wrap { overflow: auto; border: 1px solid var(--zb-lijn); border-radius: 12px; overscroll-behavior: contain; }
+        .chip { display: inline-flex; align-items: center; gap: 5px; margin: 1px 4px 1px 0; padding: 2px 9px 2px 7px; border-radius: 99px; white-space: nowrap;
+                background: color-mix(in srgb, var(--k, #94a3b8) 16%, transparent); font-size: .76rem; font-weight: 600; }
+        .chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--k, #94a3b8); }
+        .chip.app { background: none; border: 1px solid var(--zb-lijn); }
+        .chip.app::before { display: none; }
+        .chip ha-icon { --mdc-icon-size: 13px; }
+        .balk { position: relative; display: inline-block; width: 52px; height: 8px; margin-right: 8px; border-radius: 4px; background: var(--zb-zacht); vertical-align: middle; overflow: hidden; }
+        .balk i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; background: var(--zb-violet); }
+
+        /* Blokken */
+        .blokken { font-variant-numeric: tabular-nums; }
+        .blokken .dag { position: sticky; top: 0; z-index: 2; padding: 6px 12px; background: var(--zb-zacht); backdrop-filter: blur(6px);
+                        font-size: .78rem; font-weight: 700; color: var(--primary-text-color); border-bottom: 1px solid var(--zb-lijn); }
+        .blok { display: grid; grid-template-columns: 6.2rem minmax(150px, 1fr) minmax(0, 2.2fr); gap: 10px 14px; align-items: center;
+                padding: 11px 12px 11px 14px; border-bottom: 1px solid var(--zb-lijn); box-shadow: inset 4px 0 0 var(--k); }
+        .blok:last-child { border-bottom: 0; }
+        .blok.stil { opacity: .78; box-shadow: inset 4px 0 0 var(--zb-lijn); }
+        .blok.nu { background: rgba(2,132,199,.08); }
+        .bt b { display: block; font-size: .95rem; }
+        .bt span { display: block; font-size: .8rem; color: var(--secondary-text-color); }
+        .bt small { display: block; margin-top: 2px; font-size: .72rem; color: var(--secondary-text-color); }
+        .bt em { display: inline-block; margin-right: 5px; padding: 0 6px; border-radius: 99px; background: var(--zb-lucht); color: #fff; font-style: normal; font-weight: 700; }
+        .bw .zin { margin-top: 3px; font-size: .82rem; color: var(--secondary-text-color); }
+        .bm { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 6px 10px; }
+        .m small { display: block; font-size: .68rem; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .03em; }
+        .m b { display: inline-block; font-size: .86rem; font-weight: 600; color: var(--primary-text-color); white-space: nowrap; border-radius: 6px; }
+        .m b[style] { padding: 1px 6px; margin-left: -6px; }
+        .m span { display: block; font-size: .72rem; color: var(--secondary-text-color); white-space: nowrap; }
+        .m.lading .balk { display: block; width: 100%; height: 5px; margin: 4px 0 0; }
+
+        /* Per kwartier */
         table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .82rem; font-variant-numeric: tabular-nums; }
         thead th { position: sticky; top: 0; z-index: 2; background: var(--card-background-color, #fff); color: var(--secondary-text-color);
                    font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; text-align: left; padding: 9px 10px;
@@ -1026,24 +1233,24 @@
         tr.nu td.tijd { box-shadow: inset 3px 0 0 var(--zb-lucht); }
         td.tijd { font-weight: 700; }
         td.tijd small { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 99px; background: var(--zb-lucht); color: #fff; font-size: .66rem; vertical-align: 1px; }
+        td.tijd small.tot { background: none; color: var(--secondary-text-color); padding: 0; font-weight: 500; font-size: .74rem; }
         td.stand { white-space: normal; min-width: 190px; }
-        .chip { display: inline-flex; align-items: center; gap: 5px; margin: 1px 4px 1px 0; padding: 2px 9px 2px 7px; border-radius: 99px; white-space: nowrap;
-                background: color-mix(in srgb, var(--k, #94a3b8) 16%, transparent); font-size: .76rem; font-weight: 600; }
-        .chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--k, #94a3b8); }
-        .chip.app { background: none; border: 1px solid var(--zb-lijn); }
-        .chip.app::before { display: none; }
-        .chip ha-icon { --mdc-icon-size: 13px; }
         td.prijs span { display: inline-block; padding: 2px 7px; border-radius: 7px; font-weight: 600; }
         td.net.terug { color: var(--zb-groen); }
         td.bat, td.soc { min-width: 128px; }
         td.bat.laad { color: var(--zb-lucht); } td.bat.ontlaad { color: var(--zb-groen); }
         td.bat:not(.laad):not(.ontlaad) { color: var(--secondary-text-color); }
         td.bat em { font-style: normal; }
-        .balk { position: relative; display: inline-block; width: 52px; height: 8px; margin-right: 8px; border-radius: 4px; background: var(--zb-zacht); vertical-align: middle; overflow: hidden; }
-        .balk i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; background: var(--zb-violet); }
         td.bat .balk::after { content: ""; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: var(--zb-lijn); }
         td.bat .balk i { left: auto; border-radius: 0; background: currentColor; }
+
         @container (max-width: 640px) {
+          .bediening { gap: 6px; }
+          .tegels { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+          .tegels > div { padding: 7px 9px; }
+          .tegels small { font-size: .66rem; } .tegels b { font-size: .92rem; }
+          .blok { grid-template-columns: 4.6rem 1fr; padding: 10px 10px 10px 12px; }
+          .bm { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); }
           thead { display: none; }
           table, tbody { display: block; }
           tr.dag { display: block; } tr.dag th { display: block; }
@@ -1060,8 +1267,9 @@
           td.bat[data-k], td.soc[data-k] { grid-row: 3; grid-column: span 3; }
           td.bat[data-k] { grid-column: 2 / span 3; }
           td.bat em { display: none; }
-          .balk { display: block; width: 100%; height: 4px; margin: 2px 0 3px; }
+          td .balk { display: block; width: 100%; height: 4px; margin: 2px 0 3px; }
         }
+        @container (max-width: 380px) { .bm { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
       `;
     }
   }
@@ -1348,7 +1556,7 @@
   // ------------------------------------------------------------------ Paneel in de zijbalk
 
   // Het paneel Energieplan dat de integratie registreert: zoekt zelf de sensoren van Zonneburen, dus de
-  // bewoner hoeft niets in te stellen. Drie tabbladen: je batterij, het schema per kwartier, en de wijk.
+  // bewoner hoeft niets in te stellen. Drie tabbladen: het overzicht, het energieplan in blokken of per kwartier, en de wijk.
   class ZonneburenEnergieplanPanel extends HTMLElement {
     set hass(hass) {
       this._hass = hass;
@@ -1382,7 +1590,7 @@
           kaarten.push(["zonneburen-apparaten-card", { entity: id, titel: titel(id, "Apparaten in het plan") }, "breed"]);
         }
       } else if (tab === "kwartier") {
-        for (const id of plannen) kaarten.push(["zonneburen-kwartier-card", { entity: id, titel: titel(id, "Per kwartier"), max_hoogte: 0 }, "breed"]);
+        for (const id of plannen) kaarten.push(["zonneburen-kwartier-card", { entity: id, titel: titel(id, "Energieplan"), max_hoogte: 0 }, "breed"]);
       } else {
         if (bb) kaarten.push(["zonneburen-buurtbatterij-card", { entity: bb }, "breed"]);
         if (wijk) kaarten.push(["zonneburen-card", { entity: wijk, titel: "De wijk" }, "breed"]);
@@ -1393,7 +1601,7 @@
       this.shadowRoot.innerHTML = `
         <div class="balk"><ha-menu-button></ha-menu-button><span>Energieplan</span></div>
         <nav class="tabs">
-          ${[["plan", "mdi:battery-clock", "Overzicht"], ["kwartier", "mdi:table-clock", "Per kwartier"], ["wijk", "mdi:home-group", "Wijk"]]
+          ${[["plan", "mdi:battery-clock", "Overzicht"], ["kwartier", "mdi:calendar-clock", "Energieplan"], ["wijk", "mdi:home-group", "Wijk"]]
             .map(([k, i, l]) => `<button data-tab="${k}" class="${tab === k ? "aan" : ""}"><ha-icon icon="${i}"></ha-icon>${l}</button>`).join("")}
         </nav>
         <div class="inhoud">${leeg}<div class="kaarten"></div></div>
@@ -1431,7 +1639,7 @@
   window.customCards.push(
     { type: "zonneburen-batterij-card", name: "Zonneburen: je batterij nu", description: "Wat je batterij nu doet, de lading, en knoppen om te pauzeren of het plan uit te zetten.", preview: true },
     { type: "zonneburen-energieplan-card", name: "Zonneburen: energieplan", description: "Het energieplan op een tijdlijn: prijs, lading en wat de batterij doet, met de komende blokken.", preview: true },
-    { type: "zonneburen-kwartier-card", name: "Zonneburen: per kwartier", description: "Het schema van het energieplan per kwartier, zoals in de webapp. Ook goed leesbaar op je telefoon.", preview: true },
+    { type: "zonneburen-kwartier-card", name: "Zonneburen: energieplan in blokken of per kwartier", description: "Het energieplan als overzichtelijke blokken of per kwartier, met alleen de ingrepen of wijzigingen, en zelf te kiezen kolommen.", preview: true },
     { type: "zonneburen-apparaten-card", name: "Zonneburen: apparaten in het plan", description: "Wanneer het energieplan je boiler, auto of warmtepomp laat draaien.", preview: true },
     { type: "zonneburen-buurtbatterij-card", name: "Zonneburen: virtuele buurtbatterij", description: "De thuisbatterijen van de buurt samen, en hoeveel buren nu tegelijk delen.", preview: true },
     { type: "zonneburen-card", name: "Zonneburen: de wijk", description: "De wijk als een straat met huisjes: wie deelt, wie afneemt en wie wacht.", preview: true },
