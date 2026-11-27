@@ -1,7 +1,7 @@
 """Zelf herkennen van sensoren, batterijsturing en apparaten, zonder Home Assistant."""
 
 from custom_components.zonneburen.herkennen import (
-    Entiteit, kies_opties, zoek_apparaten, zoek_sensoren, zoek_sturing,
+    Entiteit, kies_opties, zoek_apparaten, zoek_deye, zoek_sensoren, zoek_sturing,
 )
 
 
@@ -166,3 +166,52 @@ def test_apparaten_vinden_met_vermogen_en_huidige_stand():
 def test_al_gekozen_apparaten_niet_opnieuw():
     entiteiten = [Entiteit("water_heater.boiler", platform="ariston", apparaat="b", staat="eco", doeltemp=55)]
     assert zoek_apparaten(entiteiten, {"water_heater.boiler"}) == []
+
+
+def deye_entiteiten():
+    """Een Deye SUN-12K-SG05LP3 via de Solarman-integratie (davidrapan), zoals hij zijn entiteiten noemt."""
+    d = dict(platform="solarman", apparaat="deye", merk="Deye")
+    lijst = [
+        W("sensor.deye_battery_power", "solarman", "deye", "Battery Power"),
+        Entiteit("sensor.deye_battery", eenheid="%", device_class="battery", **d),
+        Entiteit("sensor.deye_battery_voltage", eenheid="V", device_class="voltage", **d),
+        # De teruglevergrens: lijkt op een vermogen, maar stuurt de batterij niet.
+        Entiteit("number.deye_zero_export_power", naam="Zero Export Power", eenheid="W", minimum=0, maximum=500, **d),
+        Entiteit("select.deye_time_of_use", naam="Time of Use", opties=["Disabled", "Enabled", "Monday", "Tuesday"], **d),
+        Entiteit("number.deye_battery_grid_charging_current", naam="Battery Grid Charging Current", eenheid="A", minimum=0,
+                 maximum=240, **d),
+        Entiteit("number.deye_battery_low_soc", naam="Battery Low SOC", eenheid="%", minimum=0, maximum=100, **d),
+    ]
+    for n in range(1, 7):
+        lijst += [
+            Entiteit(f"select.deye_program_{n}_charging", naam=f"Program {n} Charging", opties=["Disabled", "Grid", "Gen", "Grid & Gen"], **d),
+            Entiteit(f"number.deye_program_{n}_soc", naam=f"Program {n} SOC", eenheid="%", minimum=0, maximum=100, **d),
+            Entiteit(f"time.deye_program_{n}_time", naam=f"Program {n} Time", **d),
+        ]
+    return lijst
+
+
+def test_deye_wordt_herkend_aan_zijn_tijdprogrammas():
+    deye = zoek_deye(deye_entiteiten())
+    assert deye.tou == "select.deye_time_of_use"
+    assert deye.laden == [f"select.deye_program_{n}_charging" for n in range(1, 7)]
+    assert deye.soc == [f"number.deye_program_{n}_soc" for n in range(1, 7)]
+    assert deye.tijd == [f"time.deye_program_{n}_time" for n in range(1, 7)]
+    assert deye.stroom == "number.deye_battery_grid_charging_current"
+    assert deye.spanning == "sensor.deye_battery_voltage"
+    assert deye.min_soc == "number.deye_battery_low_soc"
+
+
+def test_de_teruglevergrens_wordt_nooit_het_batterijvermogen():
+    entiteiten = [e for e in deye_entiteiten() if "program" not in e.entity_id]
+    sturing = zoek_sturing(entiteiten, zoek_sensoren(entiteiten))
+    assert sturing is None or sturing.vermogen != "number.deye_zero_export_power"
+    # Ook met een verleidelijke naam maar een klein bereik: bij twijfel niets kiezen.
+    los = [W("sensor.bat_power", "x", "bat", "Battery power"),
+           Entiteit("number.bat_power_setpoint", platform="x", apparaat="bat", naam="Battery power setpoint", eenheid="W",
+                    minimum=-500, maximum=500)]
+    assert zoek_sturing(los, zoek_sensoren(los)) is None
+
+
+def test_zonder_tijdprogrammas_geen_deye():
+    assert zoek_deye([e for e in deye_entiteiten() if "program" not in e.entity_id]) is None

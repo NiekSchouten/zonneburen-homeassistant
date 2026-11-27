@@ -25,6 +25,8 @@ from .const import (
     CONF_EMS_RICHTING_ONTLADEN, CONF_EMS_RICHTING_STOP, CONF_EMS_VERMOGEN, CONF_EMS_ZEKERING_A, CONF_MQTT_GEBRUIKER,
     CONF_MQTT_HOST, CONF_MQTT_POORT, CONF_MQTT_WACHTWOORD, CONF_NET, CONF_NET_OM, CONF_NET_TERUG, CONF_SERVER, CONF_SOC,
     CONF_VERBRUIK, CONF_WIJK_AUTOMATISCH, CONF_ZON, DOMAIN, SENSOREN, STANDAARD_SERVER,
+    CONF_EMS_PROFIEL, CONF_TOU, CONF_TOU_LADEN, CONF_TOU_MAX_PCT, CONF_TOU_MIN_PCT, CONF_TOU_MIN_SOC, CONF_TOU_SOC,
+    CONF_TOU_SPANNING, CONF_TOU_STROOM, CONF_TOU_TIJD, PROFIEL_DEYE, PROFIEL_VERMOGEN,
 )
 from .koppelen import KoppelFout, koppel
 
@@ -33,10 +35,21 @@ _LOGGER = logging.getLogger(__name__)
 CONF_CODE = "code"
 CONF_KIES = "kies"
 SECTIE_DETAILS = "details"
-DOMEINEN = ("sensor", "number", "input_number", "select", "input_select", "switch", "climate", "water_heater")
+DOMEINEN = ("sensor", "number", "input_number", "select", "input_select", "switch", "climate", "water_heater", "time")
 
 
 # ---------------------------------------------------------------------------------------------- Wat Home Assistant heeft
+
+def _echt_apparaat(register, apparaat):
+    """Het apparaat zelf, of bij een subapparaat zijn ouder. Een ChildDeviceEntry heeft geen fabrikant of model:
+    daar vragen we niet naar, anders waarschuwt Home Assistant."""
+    for _ in range(3):
+        if apparaat is None or type(apparaat) is dr.DeviceEntry:
+            return apparaat
+        ouder = getattr(apparaat, "via_device_id", None) or getattr(apparaat, "parent_id", None)
+        apparaat = register.async_get(ouder) if ouder else None
+    return None
+
 
 async def inventaris(hass: HomeAssistant) -> tuple[list[herkennen.Entiteit], dict]:
     """Alle entiteiten waar iets in kan zitten, met hun integratie en apparaat, en de voorkeuren van het Energie-dashboard."""
@@ -45,14 +58,15 @@ async def inventaris(hass: HomeAssistant) -> tuple[list[herkennen.Entiteit], dic
     for staat in hass.states.async_all(DOMEINEN):
         invoer = entiteiten_reg.async_get(staat.entity_id)
         apparaat = apparaten_reg.async_get(invoer.device_id) if invoer and invoer.device_id else None
+        echt = _echt_apparaat(apparaten_reg, apparaat)
         attrs = staat.attributes
         lijst.append(herkennen.Entiteit(
             entity_id=staat.entity_id,
             platform=invoer.platform if invoer else "",
             apparaat=invoer.device_id if invoer else None,
             apparaatnaam=(apparaat.name_by_user or apparaat.name or "") if apparaat else "",
-            merk=(apparaat.manufacturer or "") if apparaat else "",
-            model=(apparaat.model or "") if apparaat else "",
+            merk=(echt.manufacturer or "") if echt else "",
+            model=(echt.model or "") if echt else "",
             naam=str(attrs.get("friendly_name") or ""),
             sleutel=" ".join(str(d) for d in (invoer.translation_key, invoer.unique_id, invoer.original_name) if d) if invoer else "",
             device_class=attrs.get("device_class"),
@@ -109,6 +123,25 @@ def _sensoren_schema(standaard: dict) -> vol.Schema:
     })
 
 
+def _deye_schema(standaard: dict) -> vol.Schema:
+    meer = lambda domein: selector.EntitySelector(selector.EntitySelectorConfig(domain=domein, multiple=True))
+    een = lambda domein: selector.EntitySelector(selector.EntitySelectorConfig(domain=domein))
+    procent = lambda lo, hi: selector.NumberSelector(selector.NumberSelectorConfig(min=lo, max=hi, step=1, unit_of_measurement="%", mode="box"))
+    return vol.Schema({
+        vol.Optional(CONF_TOU, description=_voorstel(standaard.get(CONF_TOU))): een("select"),
+        vol.Optional(CONF_TOU_LADEN, description=_voorstel(standaard.get(CONF_TOU_LADEN))): meer("select"),
+        vol.Optional(CONF_TOU_SOC, description=_voorstel(standaard.get(CONF_TOU_SOC))): meer("number"),
+        vol.Optional(CONF_TOU_TIJD, description=_voorstel(standaard.get(CONF_TOU_TIJD))): meer("time"),
+        vol.Optional(CONF_TOU_STROOM, description=_voorstel(standaard.get(CONF_TOU_STROOM))): een("number"),
+        vol.Optional(CONF_TOU_SPANNING, description=_voorstel(standaard.get(CONF_TOU_SPANNING))): een("sensor"),
+        vol.Optional(CONF_TOU_MIN_SOC, description=_voorstel(standaard.get(CONF_TOU_MIN_SOC))): een("number"),
+        vol.Optional(CONF_TOU_MAX_PCT, default=standaard.get(CONF_TOU_MAX_PCT) or 90): procent(30, 100),
+        vol.Optional(CONF_TOU_MIN_PCT, default=standaard.get(CONF_TOU_MIN_PCT) or 20): procent(5, 80),
+        vol.Optional(CONF_EMS_ZEKERING_A, description=_voorstel(standaard.get(CONF_EMS_ZEKERING_A))):
+            selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=80, step=1, unit_of_measurement="A", mode="box")),
+    })
+
+
 def _batterij_schema(standaard: dict) -> vol.Schema:
     getal = selector.EntitySelector(selector.EntitySelectorConfig(domain=["number", "input_number"]))
     watt = selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=50000, step=100, unit_of_measurement="W", mode="box"))
@@ -128,6 +161,9 @@ def _batterij_schema(standaard: dict) -> vol.Schema:
     })
     return vol.Schema({
         vol.Optional(CONF_EMS_AAN, default=bool(standaard.get(CONF_EMS_AAN))): bool,
+        vol.Optional(CONF_EMS_PROFIEL, default=standaard.get(CONF_EMS_PROFIEL) or PROFIEL_VERMOGEN): selector.SelectSelector(
+            selector.SelectSelectorConfig(options=[PROFIEL_VERMOGEN, PROFIEL_DEYE], translation_key="profiel",
+                                          mode=selector.SelectSelectorMode.LIST)),
         # Ingevuld door de integratie; openklappen hoeft alleen als iets niet klopt.
         vol.Required(SECTIE_DETAILS): section(details, {"collapsed": bool(standaard.get(CONF_EMS_VERMOGEN))}),
     })
@@ -246,6 +282,9 @@ class _Stappen:
         if user_input is not None:
             details = user_input.get(SECTIE_DETAILS) or {}
             self._opties[CONF_EMS_AAN] = bool(user_input.get(CONF_EMS_AAN))
+            self._opties[CONF_EMS_PROFIEL] = user_input.get(CONF_EMS_PROFIEL) or PROFIEL_VERMOGEN
+            if self._opties[CONF_EMS_PROFIEL] == PROFIEL_DEYE:
+                return await self.async_step_deye()
             for sleutel in (CONF_EMS_VERMOGEN, CONF_EMS_ONTLAAD, CONF_EMS_NETDOEL, CONF_EMS_LADEN_POSITIEF, CONF_EMS_MODUS,
                             CONF_EMS_RICHTING, CONF_EMS_MAX_LAAD_W, CONF_EMS_MAX_ONTLAAD_W, CONF_EMS_ZEKERING_A):
                 self._opties[sleutel] = details.get(sleutel)
@@ -256,8 +295,11 @@ class _Stappen:
             return await self._volgende("batterij")
 
         standaard = dict(self._opties)
+        # Een Deye of Sunsynk met tijdprogramma's: dat profiel voorstellen, ook als er al iets stond dat niet werkte.
+        if not standaard.get(CONF_EMS_PROFIEL):
+            standaard[CONF_EMS_PROFIEL] = PROFIEL_DEYE if herkennen.zoek_deye(self._entiteiten or []) else PROFIEL_VERMOGEN
         sturing = herkennen.zoek_sturing(self._entiteiten or [], self._huidige_sensoren())
-        if sturing and not standaard.get(CONF_EMS_VERMOGEN):
+        if sturing and not standaard.get(CONF_EMS_VERMOGEN) and standaard[CONF_EMS_PROFIEL] == PROFIEL_VERMOGEN:
             standaard.update({
                 CONF_EMS_VERMOGEN: sturing.vermogen, CONF_EMS_ONTLAAD: sturing.ontlaad, CONF_EMS_NETDOEL: sturing.soort == "netdoel",
                 CONF_EMS_LADEN_POSITIEF: sturing.laden_positief, CONF_EMS_MODUS: sturing.modus,
@@ -272,7 +314,10 @@ class _Stappen:
                                   soc=self._opties.get(CONF_SOC) or (self._sensoren.soc if self._sensoren else None))
 
     def _toon_batterij(self, standaard: dict, fouten: dict | None = None) -> ConfigFlowResult:
-        if standaard.get(CONF_EMS_VERMOGEN):
+        if standaard.get(CONF_EMS_PROFIEL) == PROFIEL_DEYE:
+            uitleg = ("Dit lijkt een **Deye of Sunsynk**: die stuurt Zonneburen via de zes tijdprogramma's (Time of Use), "
+                      "want een vermogen in W kent hij niet. Kies dat hieronder; in de volgende stap zie je de programma's.")
+        elif standaard.get(CONF_EMS_VERMOGEN):
             uitleg = self._uitleg_sturing(standaard)
         else:
             uitleg = "Er is geen batterij gevonden die Home Assistant kan sturen. Heb je er wel een, kies dan zelf de entiteiten onder **Details**."
@@ -292,9 +337,53 @@ class _Stappen:
                 regels.append(f"De richting kiest Zonneburen met {naam(s[CONF_EMS_RICHTING])}.")
         else:
             regels = [f"Zonneburen stelt het batterijvermogen in via {naam(s[CONF_EMS_VERMOGEN])}."]
+        regels.append(self._bereik(s[CONF_EMS_VERMOGEN]))
         if s.get(CONF_EMS_MODUS):
             regels.append(f"Voor het sturen zet het de batterij met {naam(s[CONF_EMS_MODUS])} in de juiste stand, en daarna terug.")
         return " ".join(regels)
+
+    def _bereik(self, entity_id: str | None) -> str:
+        """De live waarde en het bereik van het gekozen getal, zodat een verkeerde keuze opvalt."""
+        staat = self.hass.states.get(entity_id) if entity_id else None
+        if staat is None:
+            return ""
+        eenheid = staat.attributes.get("unit_of_measurement") or ""
+        laag, hoog = _getal(staat.attributes.get("min")), _getal(staat.attributes.get("max"))
+        tekst = f"Nu {staat.state} {eenheid}".rstrip() + (f", bereik {laag:g} tot {hoog:g} {eenheid}".rstrip() if laag is not None and hoog is not None else "") + "."
+        factor = 1000 if eenheid == "kW" else 1
+        if hoog is not None and max(abs(hoog), abs(laag or 0)) * factor < herkennen.MIN_BEREIK_W:
+            tekst += " **Let op:** dit bereik is te klein voor een batterij. Is dit misschien een teruglevergrens?"
+        return tekst
+
+    async def async_step_deye(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """De tijdprogramma's van een Deye of Sunsynk: automatisch ingevuld, te overschrijven."""
+        await self._herken()
+        if user_input is not None:
+            for sleutel in (CONF_TOU, CONF_TOU_LADEN, CONF_TOU_SOC, CONF_TOU_TIJD, CONF_TOU_STROOM, CONF_TOU_SPANNING, CONF_TOU_MIN_SOC,
+                            CONF_TOU_MAX_PCT, CONF_TOU_MIN_PCT, CONF_EMS_ZEKERING_A):
+                self._opties[sleutel] = user_input.get(sleutel)
+            if self._opties.get(CONF_EMS_AAN) and not (user_input.get(CONF_TOU_LADEN) and user_input.get(CONF_TOU_SOC)):
+                return self._toon_deye(self._opties, {"base": "geen_programmas"})
+            return await self._volgende("batterij")
+        standaard = dict(self._opties)
+        if not standaard.get(CONF_TOU_LADEN) and (deye := herkennen.zoek_deye(self._entiteiten or [])):
+            standaard.update({CONF_TOU: deye.tou, CONF_TOU_LADEN: deye.laden, CONF_TOU_SOC: deye.soc, CONF_TOU_TIJD: deye.tijd,
+                              CONF_TOU_STROOM: deye.stroom, CONF_TOU_SPANNING: deye.spanning, CONF_TOU_MIN_SOC: deye.min_soc})
+        return self._toon_deye(standaard)
+
+    def _toon_deye(self, standaard: dict, fouten: dict | None = None) -> ConfigFlowResult:
+        regels = []
+        for sleutel, naam in ((CONF_TOU, "Time of Use"), (CONF_TOU_SPANNING, "Accuspanning"), (CONF_TOU_MIN_SOC, "Ondergrens omvormer"),
+                              (CONF_TOU_STROOM, "Laadstroom van het net")):
+            staat = self.hass.states.get(standaard.get(sleutel) or "")
+            if staat:
+                regels.append(f"- **{naam}:** {staat.state} {staat.attributes.get('unit_of_measurement') or ''}".rstrip())
+        laden = standaard.get(CONF_TOU_LADEN) or []
+        if laden:
+            regels.append(f"- **Programma's:** {len(laden)} gevonden")
+        return self.async_show_form(  # type: ignore[attr-defined]
+            step_id="deye", data_schema=_deye_schema(standaard), errors=fouten or {},
+            description_placeholders={"gevonden": "\n".join(regels) or "- Nog niets gevonden: kies hieronder de entiteiten."})
 
     def _heeft_keuzes(self) -> bool:
         return bool(self._opties.get(CONF_EMS_RICHTING)) or protocol.is_domein(self._opties.get(CONF_EMS_MODUS), "select", "input_select")
@@ -329,6 +418,8 @@ class _Stappen:
 
 class ZonneburenConfigFlow(_Stappen, ConfigFlow, domain=DOMAIN):
     VERSION = 1
+    # 1.2: het sturingsprofiel (vermogen of Deye-tijdprogramma's); zie async_migrate_entry.
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         self._gekoppeld: dict = {}
@@ -364,7 +455,8 @@ class ZonneburenConfigFlow(_Stappen, ConfigFlow, domain=DOMAIN):
     async def _volgende(self, na: str) -> ConfigFlowResult:
         if na == "sensoren":
             return await self.async_step_apparaten()
-        if na == "apparaten" and herkennen.zoek_sturing(self._entiteiten or [], self._huidige_sensoren()):
+        if na == "apparaten" and (herkennen.zoek_sturing(self._entiteiten or [], self._huidige_sensoren())
+                                  or herkennen.zoek_deye(self._entiteiten or [])):
             return await self.async_step_batterij()
         return self.async_create_entry(title=self._gekoppeld[CONF_ADRES], data=self._gekoppeld, options=self._opties)
 

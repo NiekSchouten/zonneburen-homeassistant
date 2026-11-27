@@ -52,7 +52,8 @@
         "title": "Step 4: home battery",
         "description": "{uitleg}\n\nTurn this on and your battery charges when power is cheap and discharges when it is expensive, following the energy plan from the web app. In the web app set **Energy plan** to **Control**. You can always turn it off again with the *Carry out energy plan* switch.",
         "data": {
-          "ems_aan": "Yes, let Zonneburen control my battery"
+          "ems_aan": "Yes, let Zonneburen control my battery",
+          "ems_profiel": "How is your battery controlled?"
         },
         "sections": {
           "details": {
@@ -80,6 +81,9 @@
               "ems_zekering_a": "In amps. The battery charges less hard as soon as a phase gets close to this value."
             }
           }
+        },
+        "data_description": {
+          "ems_profiel": "With a power in W (most batteries), or with the time-of-use programs of a Deye or Sunsynk."
         }
       },
       "standen": {
@@ -95,6 +99,30 @@
         "data_description": {
           "ems_modus_terug": "The mode in which the battery manages itself again."
         }
+      },
+      "deye": {
+        "title": "Deye / Sunsynk: time-of-use programs",
+        "description": "Zonneburen sets the six time-of-use programs of your inverter to 00:00, 04:00, 08:00, 12:00, 16:00 and 20:00 and gives them all the same instruction every quarter: **charge from the grid** up to a state of charge, **hold the charge**, or **self-consumption** down to the minimum. A Deye cannot discharge at a fixed power this way, so the web app will not plan that.\n\nFound:\n{gevonden}",
+        "data": {
+          "ems_tou": "Time of use (on/off)",
+          "ems_tou_laden": "Charging per program (Grid / Disabled)",
+          "ems_tou_soc": "State of charge per program (%)",
+          "ems_tou_tijd": "Time per program (optional)",
+          "ems_tou_stroom": "Grid charging current (A)",
+          "ems_tou_spanning": "Battery voltage (V)",
+          "ems_tou_min_soc": "Minimum of the inverter (optional)",
+          "ems_tou_max_pct": "Grid charging at most up to",
+          "ems_tou_min_pct": "Minimum if the inverter reports none",
+          "ems_zekering_a": "Main fuse (optional)"
+        },
+        "data_description": {
+          "ems_tou_laden": "The six Program 1-6 Charging selects. When charging Zonneburen sets them to Grid, otherwise to Disabled.",
+          "ems_tou_soc": "The six Program 1-6 SOC numbers: the target when charging, the minimum when holding or in self-consumption.",
+          "ems_tou_stroom": "Zonneburen derives the charging current from the planned power and the battery voltage.",
+          "ems_tou_max_pct": "How full the battery may be charged from the grid. Default 90 %.",
+          "ems_tou_min_pct": "Used when no minimum of the inverter is chosen. Default 20 %.",
+          "ems_zekering_a": "When a phase gets close to the fuse, the battery charges more slowly."
+        }
       }
     },
     "error": {
@@ -103,7 +131,8 @@
       "te_vaak": "Too many attempts. Try again in fifteen minutes.",
       "niet_bereikbaar": "The web app cannot be reached. Check the address and your internet connection.",
       "geen_https": "The address must start with https://.",
-      "geen_vermogen": "Under Details, pick the number that controls your battery."
+      "geen_vermogen": "Under Details, pick the number that controls your battery.",
+      "geen_programmas": "Choose at least the charging selects and the state-of-charge numbers of the programs."
     },
     "abort": {
       "already_configured": "This house is already connected."
@@ -159,7 +188,8 @@
         "title": "Home battery",
         "description": "{uitleg}\n\nTurn this on and your battery charges when power is cheap and discharges when it is expensive, following the energy plan from the web app. In the web app set **Energy plan** to **Control**. You can always turn it off again with the *Carry out energy plan* switch.",
         "data": {
-          "ems_aan": "Yes, let Zonneburen control my battery"
+          "ems_aan": "Yes, let Zonneburen control my battery",
+          "ems_profiel": "How is your battery controlled?"
         },
         "sections": {
           "details": {
@@ -187,6 +217,9 @@
               "ems_zekering_a": "In amps. The battery charges less hard as soon as a phase gets close to this value."
             }
           }
+        },
+        "data_description": {
+          "ems_profiel": "With a power in W (most batteries), or with the time-of-use programs of a Deye or Sunsynk."
         }
       },
       "standen": {
@@ -202,10 +235,35 @@
         "data_description": {
           "ems_modus_terug": "The mode in which the battery manages itself again."
         }
+      },
+      "deye": {
+        "title": "Deye / Sunsynk: time-of-use programs",
+        "description": "Zonneburen sets the six time-of-use programs of your inverter to 00:00, 04:00, 08:00, 12:00, 16:00 and 20:00 and gives them all the same instruction every quarter: **charge from the grid** up to a state of charge, **hold the charge**, or **self-consumption** down to the minimum. A Deye cannot discharge at a fixed power this way, so the web app will not plan that.\n\nFound:\n{gevonden}",
+        "data": {
+          "ems_tou": "Time of use (on/off)",
+          "ems_tou_laden": "Charging per program (Grid / Disabled)",
+          "ems_tou_soc": "State of charge per program (%)",
+          "ems_tou_tijd": "Time per program (optional)",
+          "ems_tou_stroom": "Grid charging current (A)",
+          "ems_tou_spanning": "Battery voltage (V)",
+          "ems_tou_min_soc": "Minimum of the inverter (optional)",
+          "ems_tou_max_pct": "Grid charging at most up to",
+          "ems_tou_min_pct": "Minimum if the inverter reports none",
+          "ems_zekering_a": "Main fuse (optional)"
+        },
+        "data_description": {
+          "ems_tou_laden": "The six Program 1-6 Charging selects. When charging Zonneburen sets them to Grid, otherwise to Disabled.",
+          "ems_tou_soc": "The six Program 1-6 SOC numbers: the target when charging, the minimum when holding or in self-consumption.",
+          "ems_tou_stroom": "Zonneburen derives the charging current from the planned power and the battery voltage.",
+          "ems_tou_max_pct": "How full the battery may be charged from the grid. Default 90 %.",
+          "ems_tou_min_pct": "Used when no minimum of the inverter is chosen. Default 20 %.",
+          "ems_zekering_a": "When a phase gets close to the fuse, the battery charges more slowly."
+        }
       }
     },
     "error": {
-      "geen_vermogen": "Under Details, pick the number that controls your battery."
+      "geen_vermogen": "Under Details, pick the number that controls your battery.",
+      "geen_programmas": "Choose at least the charging selects and the state-of-charge numbers of the programs."
     },
     "abort": {
       "geen_apparaten": "No new devices found. You can also add devices yourself in the web app under Devices."
@@ -255,6 +313,20 @@
       "energieplan_hervat": {
         "name": "Resume energy plan"
       }
+    }
+  },
+  "selector": {
+    "profiel": {
+      "options": {
+        "vermogen": "With a power in W",
+        "deye_tou": "Deye / Sunsynk: time-of-use programs"
+      }
+    }
+  },
+  "issues": {
+    "deye_schrijven": {
+      "title": "Zonneburen cannot set the time-of-use programs of your inverter",
+      "description": "Setting the time-of-use programs of your Deye or Sunsynk failed three times in a row. Last error: {fout}\n\nCheck that the inverter is reachable (the Solarman integration) and that the chosen entities still exist, under Zonneburen → Configure → Home battery. This notice disappears by itself once it works again."
     }
   }
 }
