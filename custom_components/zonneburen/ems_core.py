@@ -345,7 +345,8 @@ def apparaat_blokken(plan: Plan | None, nu: float, namen: dict[int, str] | None 
 
 # ------------------------------------------------------------------ Deye / Sunsynk: tijdprogramma's
 
-DEYE_LADEN_W = 200          # meer laden dan dit vraagt het plan echt van het net
+# De stand van het kwartier is leidend, niet het teken van het vermogen: een negatief vermogen bij
+# zelfverbruik is laden met eigen zon en mag nooit netladen worden. Het vermogen telt alleen voor de laadstroom.
 DEYE_MIN_STROOM_A = 10
 
 
@@ -366,7 +367,11 @@ class DeyeWens:
 def deye_wens(plan: Plan | None, vorig: Plan | None, nu: float, soc_nu: float | None, spanning: float | None, g: Grenzen,
               max_pct: float = 90, min_pct: float = 20, max_stroom_a: float | None = None,
               max_fase_a: float | None = None) -> DeyeWens:
-    """Van het kwartier van nu naar de tijdprogramma's."""
+    """Van het kwartier van nu naar de tijdprogramma's.
+
+    Alleen de stand bepaalt wat er gebeurt: netladen laadt van het net, vasthouden, standby en alleen zon
+    houden de lading vast (zon laadt gewoon door), zelfverbruik en ontladen gaan tot de ondergrens. Het
+    geplande vermogen bepaalt alleen hoe hard er van het net geladen wordt."""
     uit = lambda beperking, bron: DeyeWens(False, min_pct, None, ZELFVERBRUIK, bron, beperking)
     if g.noodstop:
         return uit("noodstop", NOODSTOP)
@@ -377,13 +382,13 @@ def deye_wens(plan: Plan | None, vorig: Plan | None, nu: float, soc_nu: float | 
         return uit("geen_plan", TERUGVAL)
     k = gekozen.kwartieren[slot]
 
-    if k.stand == NETLADEN and k.bat_w < -DEYE_LADEN_W:
+    if k.stand == NETLADEN:
         beperking = ""
         # De doel-lading uit het plan, anders zo vol als netladen mag; nooit voller dan dat.
         doel = k.soc_eind if soc_nu is None or k.soc_eind > soc_nu + 1 else max_pct
         if doel > max_pct:
             doel, beperking = max_pct, "max_netladen"
-        watt = -k.bat_w
+        watt = max(-k.bat_w, 0)
         for grens in (g.max_laad_w, gekozen.max_laad_w):
             if grens > 0:
                 watt = min(watt, grens)
@@ -400,7 +405,7 @@ def deye_wens(plan: Plan | None, vorig: Plan | None, nu: float, soc_nu: float | 
                     return DeyeWens(False, max(soc_nu or min_pct, min_pct), None, VASTHOUDEN, PLAN, "zekering", k.bat_w, slot)
         return DeyeWens(True, round(doel), stroom, NETLADEN, PLAN, beperking, k.bat_w, slot)
 
-    if k.stand in (VASTHOUDEN, STANDBY, ALLEENZON) and abs(k.bat_w) <= DEYE_LADEN_W:
+    if k.stand in (VASTHOUDEN, STANDBY, ALLEENZON):
         # Niet ontladen: de ondergrens op de lading van nu. Zon laadt gewoon door.
         doel = max(soc_nu if soc_nu is not None else min_pct, min_pct)
         return DeyeWens(False, round(min(doel, 100)), None, VASTHOUDEN, PLAN, "", k.bat_w, slot)

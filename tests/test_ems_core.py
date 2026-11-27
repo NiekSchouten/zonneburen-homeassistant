@@ -225,3 +225,27 @@ def test_deye_hoofdzekering_remt_de_laadstroom():
     wens = ems_core.deye_wens(_eigen_plan([ems_core.NETLADEN]), None, T0 + 60, 47, 51, ems_core.Grenzen(zekering_a=25),
                               max_stroom_a=240, max_fase_a=24.5)
     assert wens.laden and wens.beperking == "zekering" and wens.stroom_a < 98
+
+
+def test_deye_zelfverbruik_met_negatief_vermogen_wordt_nooit_netladen():
+    # 3,2 kW zon en 1,7 kW verbruik: het plan laadt 1500 W met eigen zon. Dat is geen netladen.
+    wens = _deye(_eigen_plan([ems_core.ZELFVERBRUIK], bat_w=[-1500], soc=[60]), T0 + 60, 47)
+    assert not wens.laden and wens.soc == 20 and wens.stroom_a is None and wens.stand == ems_core.ZELFVERBRUIK
+
+
+def test_deye_zelfverbruik_dat_rond_nul_schommelt_blijft_dezelfde_opdracht():
+    wensen = {(w.laden, w.soc, w.stroom_a, w.stand) for w in (
+        _deye(_eigen_plan([ems_core.ZELFVERBRUIK], bat_w=[b]), T0 + 60, 47) for b in (-250, 250, -250, 250))}
+    assert wensen == {(False, 20, None, ems_core.ZELFVERBRUIK)}
+
+
+def test_deye_alleen_zon_met_veel_laden_houdt_de_lading_vast():
+    # Laden met eigen zon in de stand alleen zon: niet ontladen tot de ondergrens.
+    wens = _deye(_eigen_plan([ems_core.ALLEENZON], bat_w=[-1500]), T0 + 60, 55)
+    assert not wens.laden and wens.soc == 55 and wens.stand == ems_core.VASTHOUDEN
+
+
+def test_deye_netladen_met_weinig_vermogen_laadt_toch_van_het_net():
+    wens = _deye(_eigen_plan([ems_core.NETLADEN], bat_w=[-100], soc=[70]), T0 + 60, 47)
+    assert wens.laden and wens.soc == 70 and wens.stroom_a == 10
+
